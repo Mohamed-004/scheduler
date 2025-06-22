@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--read-only",
+        "--project-ref=YOUR_PROJECT_REF_HERE"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "YOUR_PERSONAL_ACCESS_TOKEN_HERE"
+      }
+    }
+  }
+}
+
+// Instructions:
+// 1. Copy this file to .cursor/mcp.json
+// 2. Replace YOUR_PROJECT_REF_HERE with your Supabase project reference
+// 3. Replace YOUR_PERSONAL_ACCESS_TOKEN_HERE with your personal access token
+// 4. Restart Cursor to activate the MCP server 
