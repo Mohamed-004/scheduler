@@ -10,12 +10,14 @@ interface DashboardLayoutClientProps {
   children: ReactNode
   userProfile: any
   userEmail: string
+  hasPendingInvitation: boolean
 }
 
 export const DashboardLayoutClient = ({ 
   children, 
   userProfile, 
-  userEmail 
+  userEmail,
+  hasPendingInvitation
 }: DashboardLayoutClientProps) => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
@@ -28,6 +30,7 @@ export const DashboardLayoutClient = ({
       {/* Sidebar */}
       <Sidebar 
         userRole={userProfile?.role || 'worker'} 
+        hasPendingInvitation={hasPendingInvitation}
         onCollapsedChange={handleSidebarCollapse}
       />
       

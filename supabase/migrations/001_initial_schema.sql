@@ -5,7 +5,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 -- Custom types
-CREATE TYPE user_role AS ENUM ('admin', 'sales', 'worker', 'client');
+CREATE TYPE user_role AS ENUM ('admin', 'sales', 'worker');
 CREATE TYPE job_status AS ENUM ('PENDING', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED');
 
 -- Users table (extends auth.users)

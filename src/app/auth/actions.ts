@@ -12,7 +12,9 @@ export async function signUp(formData: FormData) {
     password: formData.get('password') as string,
   }
 
-  console.log('Attempting signup for:', data.email)
+  const selectedRole = formData.get('role') as string
+
+  console.log('Attempting signup for:', data.email, 'with role:', selectedRole)
 
   const { data: authData, error } = await supabase.auth.signUp(data)
 
@@ -25,19 +27,42 @@ export async function signUp(formData: FormData) {
     // User is signed up and logged in immediately (email confirmation disabled)
     console.log('User signed up and logged in immediately')
     
-    // Create user profile
+    // Create or update user profile with selected role using UPSERT
     const { error: profileError } = await supabase
       .from('users')
-      .insert({
+      .upsert({
         id: authData.user.id,
         email: authData.user.email!,
-        role: 'worker',
+        role: selectedRole as 'admin' | 'sales' | 'worker',
         tz: 'America/Toronto'
+      }, {
+        onConflict: 'id'
       })
 
     if (profileError) {
-      console.error('Profile creation error:', profileError)
-      // Don't fail the signup, just log the error
+      console.error('Profile creation/update error:', profileError)
+      // Don't fail the signup, but this is more critical now
+    } else {
+      console.log('Profile created/updated successfully with role:', selectedRole)
+    }
+
+    // Create worker record if role is worker
+    if (selectedRole === 'worker') {
+      const { error: workerError } = await supabase
+        .from('workers')
+        .upsert({
+          user_id: authData.user.id,
+          name: authData.user.email!,
+          phone: '',
+          tz: 'America/Toronto'
+        }, {
+          onConflict: 'user_id'
+        })
+
+      if (workerError) {
+        console.error('Worker record creation error:', workerError)
+        // Don't fail the signup, just log the error
+      }
     }
 
     revalidatePath('/', 'layout')

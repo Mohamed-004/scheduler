@@ -23,10 +23,25 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
     .eq('id', user.id)
     .single()
 
+  // Check for pending invitations for this user's email
+  let hasPendingInvitation = false
+  if (userProfile?.email) {
+    const { data: pendingInvitation } = await supabase
+      .from('invitations')
+      .select('id')
+      .eq('email', userProfile.email)
+      .eq('status', 'pending')
+      .gt('expires_at', new Date().toISOString())
+      .single()
+    
+    hasPendingInvitation = !!pendingInvitation
+  }
+
   return (
     <DashboardLayoutClient 
       userProfile={userProfile}
       userEmail={userProfile?.email || user?.email || ''}
+      hasPendingInvitation={hasPendingInvitation}
     >
       {children}
     </DashboardLayoutClient>

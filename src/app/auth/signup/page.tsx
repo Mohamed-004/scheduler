@@ -1,275 +1,224 @@
 'use client'
 
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
-import { signUp } from '../actions'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Mail, Lock, Eye, EyeOff, CheckCircle, XCircle, Loader2, ArrowLeft } from 'lucide-react'
+import { Badge } from "@/components/ui/badge"
+import { UserPlus, Mail, ArrowLeft, Shield, AlertTriangle } from 'lucide-react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
-
-const signUpSchema = z.object({
-  email: z.string().email('Please enter a valid email address'),
-  password: z.string()
-    .min(8, 'Password must be at least 8 characters')
-    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
-    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
-    .regex(/[0-9]/, 'Password must contain at least one number'),
-  confirmPassword: z.string()
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ["confirmPassword"],
-})
-
-type SignUpForm = z.infer<typeof signUpSchema>
+import { signUp } from '../actions'
 
 export default function SignUpPage() {
-  const [showPassword, setShowPassword] = useState(false)
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const searchParams = useSearchParams()
-  const error = searchParams.get('error')
-  const success = searchParams.get('success')
+  const [error, setError] = useState<string | null>(null)
+  const [selectedRole, setSelectedRole] = useState<'admin' | 'sales' | 'worker'>('worker')
 
-  const {
-    register,
-    handleSubmit,
-    watch,
-    formState: { errors, isValid }
-  } = useForm<SignUpForm>({
-    resolver: zodResolver(signUpSchema),
-    mode: 'onChange'
-  })
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setIsLoading(true)
+    setError(null)
 
-  const password = watch('password', '')
+    const formData = new FormData(e.currentTarget)
+    
+    // Validate passwords match
+    const password = formData.get('password') as string
+    const confirmPassword = formData.get('confirmPassword') as string
+    
+    if (password !== confirmPassword) {
+      setError('Passwords do not match')
+      setIsLoading(false)
+      return
+    }
 
-  const passwordStrength = {
-    hasLength: password.length >= 8,
-    hasUpper: /[A-Z]/.test(password),
-    hasLower: /[a-z]/.test(password),
-    hasNumber: /[0-9]/.test(password)
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters')
+      setIsLoading(false)
+      return
+    }
+
+    try {
+      await signUp(formData)
+    } catch (err: any) {
+      setError(err.message || 'Failed to create account')
+      setIsLoading(false)
+    }
   }
 
-  const strengthScore = Object.values(passwordStrength).filter(Boolean).length
+  const getRoleBadgeColor = (role: string) => {
+    switch (role) {
+      case 'admin':
+        return 'bg-destructive/10 text-destructive border-destructive/20'
+      case 'sales':
+        return 'bg-primary/10 text-primary border-primary/20'
+      case 'worker':
+        return 'bg-success/10 text-success border-success/20'
 
-  const onSubmit = async (data: SignUpForm) => {
-    setIsLoading(true)
-    try {
-      const formData = new FormData()
-      formData.append('email', data.email)
-      formData.append('password', data.password)
-      await signUp(formData)
-    } catch (error) {
-      console.error('Signup error:', error)
-    } finally {
-      setIsLoading(false)
+      default:
+        return 'bg-muted text-muted-foreground border-border'
+    }
+  }
+
+  const getRoleDescription = (role: string) => {
+    switch (role) {
+      case 'admin':
+        return 'Full system access, can manage all users and settings'
+      case 'sales':
+        return 'Can manage jobs, clients, and view reports'
+      case 'worker':
+        return 'Can view assigned jobs and update job status'
+
+      default:
+        return ''
     }
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-lg">
         <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
           <CardHeader className="space-y-1 text-center pb-6">
             <div className="flex items-center justify-center w-12 h-12 bg-blue-600 rounded-full mx-auto mb-4">
-              <Mail className="w-6 h-6 text-white" />
+              <UserPlus className="w-6 h-6 text-white" />
             </div>
             <CardTitle className="text-2xl font-bold text-gray-900">Create Account</CardTitle>
             <CardDescription className="text-gray-600">
-              Join Dynamic Crew Scheduler to get started
+              Join Dynamic Crew Scheduler and start managing your team
             </CardDescription>
           </CardHeader>
           
           <CardContent className="space-y-6">
-            {error && (
-              <div className="flex items-center gap-2 p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg">
-                <XCircle className="w-4 h-4 flex-shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            {success && (
-              <div className="flex items-center gap-2 p-3 text-sm text-green-600 bg-green-50 border border-green-200 rounded-lg">
-                <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                <span>{success}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-6">
               {/* Email Field */}
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-medium text-gray-700">
-                  Email Address
-                </Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="Enter your email"
-                    className="pl-10 h-11 border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-                    {...register('email')}
-                  />
-                </div>
-                {errors.email && (
-                  <p className="text-sm text-red-600 flex items-center gap-1">
-                    <XCircle className="w-3 h-3" />
-                    {errors.email.message}
-                  </p>
-                )}
+                <Label htmlFor="email">Email Address</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="you@company.com"
+                  required
+                  className="w-full"
+                />
               </div>
 
-              {/* Password Field */}
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium text-gray-700">
-                  Password
-                </Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              {/* Password Fields */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
                   <Input
                     id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Create a strong password"
-                    className="pl-10 pr-10 h-11 border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-                    {...register('password')}
+                    name="password"
+                    type="password"
+                    placeholder="Create password"
+                    required
+                    minLength={6}
+                    className="w-full"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
                 </div>
-                {errors.password && (
-                  <p className="text-sm text-red-600 flex items-center gap-1">
-                    <XCircle className="w-3 h-3" />
-                    {errors.password.message}
-                  </p>
-                )}
-
-                {/* Password Strength Indicator */}
-                {password && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 bg-gray-200 rounded-full h-2">
-                        <div 
-                          className={`h-2 rounded-full transition-all duration-300 ${
-                            strengthScore === 1 ? 'bg-red-500 w-1/4' :
-                            strengthScore === 2 ? 'bg-orange-500 w-2/4' :
-                            strengthScore === 3 ? 'bg-yellow-500 w-3/4' :
-                            strengthScore === 4 ? 'bg-green-500 w-full' : 'w-0'
-                          }`}
-                        />
-                      </div>
-                      <span className={`text-xs font-medium ${
-                        strengthScore === 1 ? 'text-red-600' :
-                        strengthScore === 2 ? 'text-orange-600' :
-                        strengthScore === 3 ? 'text-yellow-600' :
-                        strengthScore === 4 ? 'text-green-600' : 'text-gray-400'
-                      }`}>
-                        {strengthScore === 1 ? 'Weak' :
-                         strengthScore === 2 ? 'Fair' :
-                         strengthScore === 3 ? 'Good' :
-                         strengthScore === 4 ? 'Strong' : ''}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className={`flex items-center gap-1 ${passwordStrength.hasLength ? 'text-green-600' : 'text-gray-400'}`}>
-                        {passwordStrength.hasLength ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                        8+ characters
-                      </div>
-                      <div className={`flex items-center gap-1 ${passwordStrength.hasUpper ? 'text-green-600' : 'text-gray-400'}`}>
-                        {passwordStrength.hasUpper ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                        Uppercase
-                      </div>
-                      <div className={`flex items-center gap-1 ${passwordStrength.hasLower ? 'text-green-600' : 'text-gray-400'}`}>
-                        {passwordStrength.hasLower ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                        Lowercase
-                      </div>
-                      <div className={`flex items-center gap-1 ${passwordStrength.hasNumber ? 'text-green-600' : 'text-gray-400'}`}>
-                        {passwordStrength.hasNumber ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                        Number
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Confirm Password Field */}
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword" className="text-sm font-medium text-gray-700">
-                  Confirm Password
-                </Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <div className="space-y-2">
+                  <Label htmlFor="confirmPassword">Confirm Password</Label>
                   <Input
                     id="confirmPassword"
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    placeholder="Confirm your password"
-                    className="pl-10 pr-10 h-11 border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-                    {...register('confirmPassword')}
+                    name="confirmPassword"
+                    type="password"
+                    placeholder="Confirm password"
+                    required
+                    minLength={6}
+                    className="w-full"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
                 </div>
-                {errors.confirmPassword && (
-                  <p className="text-sm text-red-600 flex items-center gap-1">
-                    <XCircle className="w-3 h-3" />
-                    {errors.confirmPassword.message}
-                  </p>
-                )}
               </div>
 
+              {/* Role Selection */}
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="role">Select Your Role</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Choose the role that best describes your position. This can be changed later by an administrator.
+                  </p>
+                </div>
+                
+                <input type="hidden" name="role" value={selectedRole} />
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {(['admin', 'sales', 'worker'] as const).map((role) => (
+                    <div
+                      key={role}
+                      className={`p-4 border rounded-lg cursor-pointer transition-all ${
+                        selectedRole === role
+                          ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                          : 'border-border hover:border-primary/50 hover:bg-muted/50'
+                      }`}
+                      onClick={() => setSelectedRole(role)}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <Badge className={getRoleBadgeColor(role)}>
+                          {role}
+                        </Badge>
+                        {selectedRole === role && (
+                          <Shield className="h-4 w-4 text-primary" />
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {getRoleDescription(role)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Error Message */}
+              {error && (
+                <div className="p-4 rounded-lg bg-destructive/10 text-destructive border border-destructive/20">
+                  <div className="flex items-center">
+                    <AlertTriangle className="h-4 w-4 mr-2" />
+                    {error}
+                  </div>
+                </div>
+              )}
+
               {/* Submit Button */}
-              <Button 
-                type="submit" 
-                className="w-full h-11 bg-blue-600 hover:bg-blue-700 text-white font-medium"
-                disabled={!isValid || isLoading}
+              <Button
+                type="submit"
+                disabled={isLoading}
+                className="w-full bg-blue-600 hover:bg-blue-700"
               >
                 {isLoading ? (
                   <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <div className="animate-spin h-4 w-4 mr-2 border-2 border-current border-t-transparent rounded-full" />
                     Creating Account...
                   </>
                 ) : (
-                  'Create Account'
+                  <>
+                    <UserPlus className="h-4 w-4 mr-2" />
+                    Create Account
+                  </>
                 )}
               </Button>
             </form>
 
             {/* Sign In Link */}
-            <div className="text-center pt-4 border-t border-gray-200">
+            <div className="text-center">
               <p className="text-sm text-gray-600">
                 Already have an account?{' '}
-                <Link 
-                  href="/auth/signin" 
-                  className="font-medium text-blue-600 hover:text-blue-700 hover:underline"
-                >
+                <Link href="/auth/signin" className="text-blue-600 hover:underline font-medium">
                   Sign in here
                 </Link>
               </p>
             </div>
 
-            {/* Back to Home */}
+            {/* Additional Info */}
             <div className="text-center">
-              <Link 
-                href="/auth" 
-                className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Back to Home
-              </Link>
+              <div className="flex items-center gap-2 p-3 text-sm text-blue-600 bg-blue-50 border border-blue-200 rounded-lg">
+                <Mail className="w-4 h-4 flex-shrink-0" />
+                <div className="text-left">
+                  <div className="text-xs text-blue-500">
+                    Note: Your role can be updated later by team administrators through invitations.
+                  </div>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>

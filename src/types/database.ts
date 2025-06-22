@@ -3,7 +3,7 @@
 export interface User {
   id: string
   email: string
-  role: 'admin' | 'sales' | 'worker' | 'client'
+  role: 'admin' | 'sales' | 'worker'
   tz: string // IANA timezone string
   created_at: string
   updated_at: string
