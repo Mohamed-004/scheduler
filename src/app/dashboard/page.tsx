@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PendingInvitationAlert } from '@/components/dashboard/pending-invitation-alert'
-import { DashboardContent } from '@/components/dashboard/dashboard-content'
+import DashboardContent from '@/components/dashboard/dashboard-content'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -12,20 +12,24 @@ export default async function DashboardPage() {
     redirect('/auth/signin')
   }
 
-  // Get user profile
-  const { data: userProfile } = await supabase
+  // Get user profile - should work now that RLS circular dependency is fixed
+  const { data: userProfile, error: profileError } = await supabase
     .from('users')
     .select('*')
     .eq('id', user.id)
     .single()
 
+  console.log('Dashboard - Profile query result:', { userProfile, profileError })
+
+  // If no profile exists, redirect to setup
   if (!userProfile) {
+    console.log('No user profile found, redirecting to setup')
     redirect('/auth/setup')
   }
 
-  // Check for pending invitations for this user's email with inviter information
+  // Check for pending invitations for this user's email
   const { data: pendingInvitation } = await supabase
-    .from('invitations')
+    .from('team_invitations')
     .select(`
       *,
       inviter:users!invited_by(email)
@@ -33,7 +37,7 @@ export default async function DashboardPage() {
     .eq('email', userProfile.email)
     .eq('status', 'pending')
     .gt('expires_at', new Date().toISOString())
-    .single()
+    .maybeSingle()
 
   console.log('Dashboard - User profile:', userProfile)
   console.log('Dashboard - Pending invitation:', pendingInvitation)
@@ -57,7 +61,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <DashboardContent userRole={userProfile.role} />
+      <DashboardContent />
     </div>
   )
 } 

@@ -308,6 +308,13 @@ export default async function JobsPage() {
                         View Details
                       </Button>
                     </Link>
+                    {(userProfile.role === 'admin' || userProfile.role === 'sales') && (
+                      <Link href={`/dashboard/jobs/${job.id}/edit`}>
+                        <Button variant="outline" size="sm">
+                          Edit
+                        </Button>
+                      </Link>
+                    )}
                   </div>
                 </div>
               ))}

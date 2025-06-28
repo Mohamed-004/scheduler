@@ -1,9 +1,9 @@
 /**
- * Email service for sending invitation and notification emails
- * Uses Twilio SendGrid for reliable email delivery
+ * Alternative Gmail SMTP Email Service
+ * Simple backup option using Gmail SMTP
  */
 
-import sgMail from '@sendgrid/mail'
+import nodemailer from 'nodemailer'
 
 interface EmailOptions {
   to: string
@@ -22,63 +22,66 @@ interface InvitationEmailData {
 }
 
 /**
- * Send an email using Twilio SendGrid service
+ * Send email using Gmail SMTP
+ * Requires Gmail App Password (not regular password)
  */
 export async function sendEmail(options: EmailOptions): Promise<{ success: boolean; error?: string }> {
   try {
-    // For development, also log the email content
+    // Check if running on client-side (should not happen)
+    if (typeof window !== 'undefined') {
+      console.error('❌ Email service called on client-side')
+      return { success: false, error: 'Email service called on client-side' }
+    }
+
+    // For development, log the email content
     if (process.env.NODE_ENV === 'development') {
-      console.log('📧 SENDING EMAIL:')
+      console.log('📧 SENDING EMAIL via Gmail SMTP:')
       console.log('To:', options.to)
       console.log('Subject:', options.subject)
       console.log('---')
     }
     
-    // Check if we're on the client side
-    if (typeof window !== 'undefined') {
-      console.error('Email sending attempted on client side')
-      return { success: false, error: 'Email sending must be done server-side' }
-    }
-    
-    // Check if API key is configured
-    const apiKey = process.env.SENDGRID_API_KEY
-    if (!apiKey) {
-      console.error('SENDGRID_API_KEY not configured. Available env vars:', Object.keys(process.env).filter(key => key.includes('SENDGRID')))
-      return { success: false, error: 'Email service not configured' }
-    }
-    
-    // Set SendGrid API key
-    sgMail.setApiKey(apiKey)
-    
-    // Prepare email message
-    const message = {
-      to: options.to,
-      from: process.env.EMAIL_FROM || 'noreply@scheduler.dev',
-      subject: options.subject,
-      html: options.html,
-      text: options.text || options.html.replace(/<[^>]*>/g, ''), // Strip HTML for text version
-      replyTo: process.env.EMAIL_REPLY_TO || 'support@scheduler.dev'
+    // Check if Gmail credentials are configured
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+      console.error('Gmail SMTP not configured. Need GMAIL_USER and GMAIL_APP_PASSWORD')
+      return { success: false, error: 'Gmail SMTP not configured' }
     }
 
-    // Send email using SendGrid
-    const response = await sgMail.send(message)
-    
+    // Create Gmail SMTP transporter
+    const transporter = nodemailer.createTransporter({
+      service: 'gmail',
+      auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD
+      }
+    })
+
+    // Send email
+    const result = await transporter.sendMail({
+      from: `"Scheduler App" <${process.env.GMAIL_USER}>`,
+      to: options.to,
+      subject: options.subject,
+      html: options.html,
+      text: options.text || options.html.replace(/<[^>]*>/g, ''),
+      replyTo: process.env.EMAIL_REPLY_TO || process.env.GMAIL_USER
+    })
+
     if (process.env.NODE_ENV === 'development') {
-      console.log('✅ Email sent successfully via SendGrid:', response[0].statusCode)
+      console.log('✅ Email sent successfully via Gmail:', result.messageId)
     }
     
     return { success: true }
   } catch (error: any) {
-    console.error('SendGrid email error:', error.response?.body || error.message)
+    console.error('Gmail SMTP error:', error.message)
     return { 
       success: false, 
-      error: error.response?.body?.errors?.[0]?.message || error.message || 'Failed to send email'
+      error: error.message || 'Failed to send email'
     }
   }
 }
 
 /**
- * Send invitation email to new team member
+ * Send invitation email using Gmail SMTP
  */
 export async function sendInvitationEmail(data: InvitationEmailData): Promise<{ success: boolean; error?: string }> {
   const subject = `You're invited to join the team as ${data.role}`
@@ -155,7 +158,7 @@ export async function sendInvitationEmail(data: InvitationEmailData): Promise<{ 
 }
 
 /**
- * Send role change notification email
+ * Send role change notification using Gmail SMTP
  */
 export async function sendRoleChangeEmail(data: InvitationEmailData): Promise<{ success: boolean; error?: string }> {
   const subject = `Your role has been updated to ${data.role}`

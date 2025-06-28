@@ -77,11 +77,11 @@ export function PendingInvitationAlert({ invitation, currentRole }: PendingInvit
         }
       }
 
-      // Now try the actual invitation acceptance using the new direct approach
+      // Now try the actual invitation acceptance using the accept_team_invitation function
       console.log('=== ATTEMPTING ACTUAL INVITATION ACCEPTANCE ===')
-      const { data, error } = await supabase.rpc('process_invitation_acceptance', {
-        invitation_token: invitation.token,
-        accepting_user_id: user.id
+      const { data, error } = await supabase.rpc('accept_team_invitation', {
+        p_token: invitation.token,
+        p_user_id: user.id
       })
 
       console.log('Accept invitation response:', { data, error })
@@ -120,7 +120,7 @@ Debug information has been logged to the console. Please check the browser conso
       
       // Update invitation status to cancelled
       const { error } = await supabase
-        .from('invitations')
+        .from('team_invitations')
         .update({ status: 'cancelled' })
         .eq('id', invitation.id)
 

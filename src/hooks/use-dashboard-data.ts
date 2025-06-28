@@ -1,150 +1,213 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import type { 
+  TeamDashboardStats, 
+  Job, 
+  User, 
+  Client, 
+  JobWithRelations,
+  Team 
+} from '@/types/database'
 
-export interface DashboardStats {
-  totalJobs: number
-  activeJobs: number
-  completedJobs: number
-  pendingJobs: number
-  totalWorkers: number
-  activeWorkers: number
-  totalCrews: number
-  activeCrews: number
-  totalClients: number
-  recentJobs: Array<{
-    id: string
-    job_type: string
-    status: string
-    client_name: string
-    start: string
-    created_at: string
-  }>
-  recentActivity: Array<{
-    id: string
-    type: 'job_created' | 'job_completed' | 'worker_assigned'
-    message: string
-    timestamp: string
-  }>
+interface DashboardData {
+  stats: TeamDashboardStats | null
+  recentJobs: JobWithRelations[]
+  teamMembers: User[]
+  clients: Client[]
+  loading: boolean
+  error: string | null
 }
 
-const fetchDashboardStats = async (): Promise<DashboardStats> => {
-  const supabase = createClient()
-
-  try {
-    // Fetch jobs with client information
-    const { data: jobs, error: jobsError } = await supabase
-      .from('jobs')
-      .select(`
-        id,
-        job_type,
-        status,
-        start,
-        created_at,
-        client:clients(name)
-      `)
-      .order('created_at', { ascending: false })
-
-    if (jobsError) throw jobsError
-
-    // Fetch workers
-    const { data: workers, error: workersError } = await supabase
-      .from('workers')
-      .select('id, is_active')
-
-    if (workersError) throw workersError
-
-    // Fetch crews
-    const { data: crews, error: crewsError } = await supabase
-      .from('crews')
-      .select('id, is_active')
-
-    if (crewsError) throw crewsError
-
-    // Fetch clients
-    const { data: clients, error: clientsError } = await supabase
-      .from('clients')
-      .select('id')
-
-    if (clientsError) throw clientsError
-
-    // Safely access jobs data
-    const safeJobs = jobs || []
-
-    // Calculate statistics
-    const totalJobs = safeJobs.length
-    const activeJobs = safeJobs.filter((job: any) => 
-      job.status === 'SCHEDULED' || job.status === 'IN_PROGRESS'
-    ).length
-    const completedJobs = safeJobs.filter((job: any) => job.status === 'COMPLETED').length
-    const pendingJobs = safeJobs.filter((job: any) => job.status === 'PENDING').length
-
-    const totalWorkers = workers?.length || 0
-    const activeWorkers = workers?.filter(worker => worker.is_active).length || 0
-
-    const totalCrews = crews?.length || 0
-    const activeCrews = crews?.filter(crew => crew.is_active).length || 0
-
-    const totalClients = clients?.length || 0
-
-    // Get recent jobs (last 5)
-    const recentJobs = safeJobs.slice(0, 5).map((job: any) => ({
-      id: job.id,
-      job_type: job.job_type,
-      status: job.status,
-      client_name: job.client?.name || 'Unknown Client',
-      start: job.start,
-      created_at: job.created_at
-    }))
-
-    // Generate recent activity (mock for now, could be from timeline_items later)
-    const recentActivity = safeJobs.slice(0, 3).map((job: any) => ({
-      id: job.id,
-      type: 'job_created' as const,
-      message: `New job "${job.job_type}" created for ${job.client?.name || 'client'}`,
-      timestamp: job.created_at
-    }))
-
-    return {
-      totalJobs,
-      activeJobs,
-      completedJobs,
-      pendingJobs,
-      totalWorkers,
-      activeWorkers,
-      totalCrews,
-      activeCrews,
-      totalClients,
-      recentJobs,
-      recentActivity
-    }
-  } catch (error) {
-    console.error('Error fetching dashboard stats:', error)
-    // Return default stats on error
-    return {
-      totalJobs: 0,
-      activeJobs: 0,
-      completedJobs: 0,
-      pendingJobs: 0,
-      totalWorkers: 0,
-      activeWorkers: 0,
-      totalCrews: 0,
-      activeCrews: 0,
-      totalClients: 0,
-      recentJobs: [],
-      recentActivity: []
-    }
-  }
-}
-
-export const useDashboardData = () => {
-  return useQuery({
-    queryKey: ['dashboard-stats'],
-    queryFn: fetchDashboardStats,
-    refetchInterval: 30000, // Refetch every 30 seconds
-    staleTime: 10000, // Consider data stale after 10 seconds
+export function useDashboardData() {
+  const [data, setData] = useState<DashboardData>({
+    stats: null,
+    recentJobs: [],
+    teamMembers: [],
+    clients: [],
+    loading: true,
+    error: null,
   })
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function fetchDashboardData() {
+      const supabase = createClient()
+
+      try {
+        // Get current user and their team
+        const { data: { user }, error: userError } = await supabase.auth.getUser()
+        
+        if (userError || !user) {
+          throw new Error('User not authenticated')
+        }
+
+        // Get user profile with team info
+        const { data: userProfile, error: profileError } = await supabase
+          .from('users')
+          .select(`
+            *,
+            team:teams(*)
+          `)
+          .eq('id', user.id)
+          .single()
+
+        if (profileError || !userProfile) {
+          throw new Error('Failed to fetch user profile')
+        }
+
+        const teamId = userProfile.team_id
+
+        // Fetch all team data in parallel for performance
+        const [
+          { data: jobs, error: jobsError },
+          { data: teamMembers, error: membersError },
+          { data: clients, error: clientsError }
+        ] = await Promise.all([
+          // Jobs with relations
+          supabase
+            .from('jobs')
+            .select(`
+              *,
+              client:clients(*),
+              assigned_worker:users(id, name, email, role),
+              team:teams(*)
+            `)
+            .eq('team_id', teamId)
+            .order('created_at', { ascending: false })
+            .limit(20),
+
+          // Team members
+          supabase
+            .from('users')
+            .select('*')
+            .eq('team_id', teamId)
+            .eq('is_active', true)
+            .order('created_at', { ascending: false }),
+
+          // Clients
+          supabase
+            .from('clients')
+            .select('*')
+            .eq('team_id', teamId)
+            .order('created_at', { ascending: false })
+        ])
+
+        if (jobsError) throw new Error(`Jobs error: ${jobsError.message}`)
+        if (membersError) throw new Error(`Members error: ${membersError.message}`)
+        if (clientsError) throw new Error(`Clients error: ${clientsError.message}`)
+
+        // Calculate dashboard statistics
+        const totalJobs = jobs?.length || 0
+        const activeJobs = jobs?.filter(job => 
+          ['SCHEDULED', 'IN_PROGRESS'].includes(job.status)
+        ).length || 0
+        const completedJobs = jobs?.filter(job => 
+          job.status === 'COMPLETED'
+        ).length || 0
+        const pendingJobs = jobs?.filter(job => 
+          job.status === 'PENDING'
+        ).length || 0
+
+        const activeWorkers = teamMembers?.filter(member => 
+          member.role === 'worker' && member.is_active
+        ).length || 0
+
+        const recentJobs = jobs?.slice(0, 10) || []
+
+        const stats: TeamDashboardStats = {
+          team: userProfile.team,
+          total_jobs: totalJobs,
+          active_jobs: activeJobs,
+          completed_jobs: completedJobs,
+          pending_jobs: pendingJobs,
+          total_team_members: teamMembers?.length || 0,
+          active_workers: activeWorkers,
+          total_clients: clients?.length || 0,
+          recent_jobs: recentJobs
+        }
+
+        if (isMounted) {
+          setData({
+            stats,
+            recentJobs,
+            teamMembers: teamMembers || [],
+            clients: clients || [],
+            loading: false,
+            error: null,
+          })
+        }
+
+      } catch (error) {
+        console.error('Dashboard data fetch error:', error)
+        if (isMounted) {
+          setData(prev => ({
+            ...prev,
+            loading: false,
+            error: error instanceof Error ? error.message : 'Unknown error occurred',
+          }))
+        }
+      }
+    }
+
+    fetchDashboardData()
+
+    // Set up real-time subscriptions for team data
+    const supabase = createClient()
+    
+    const jobsSubscription = supabase
+      .channel('dashboard-jobs')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'jobs' },
+        () => {
+          console.log('Jobs changed, refetching dashboard data...')
+          fetchDashboardData()
+        }
+      )
+      .subscribe()
+
+    const usersSubscription = supabase
+      .channel('dashboard-users')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'users' },
+        () => {
+          console.log('Users changed, refetching dashboard data...')
+          fetchDashboardData()
+        }
+      )
+      .subscribe()
+
+    const clientsSubscription = supabase
+      .channel('dashboard-clients')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'clients' },
+        () => {
+          console.log('Clients changed, refetching dashboard data...')
+          fetchDashboardData()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      isMounted = false
+      supabase.removeChannel(jobsSubscription)
+      supabase.removeChannel(usersSubscription)
+      supabase.removeChannel(clientsSubscription)
+    }
+  }, [])
+
+  const refreshData = async () => {
+    setData(prev => ({ ...prev, loading: true }))
+    // Trigger useEffect to refetch data
+    window.location.reload()
+  }
+
+  return {
+    ...data,
+    refreshData,
+  }
 }
 
 // Hook for real-time updates

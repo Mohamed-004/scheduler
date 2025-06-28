@@ -53,19 +53,17 @@ export default function InviteTeamPage() {
   const checkEmailExists = async (email: string): Promise<EmailCheckResult> => {
     try {
       const supabase = createClient()
-      const { data, error } = await supabase
-        .from('users')
-        .select('email, role')
-        .eq('email', email.trim())
-        .single()
+      const { data, error } = await supabase.rpc('check_user_exists', {
+        check_email: email.trim()
+      })
       
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+      if (error) {
         console.error('Error checking email:', error)
         return { exists: false }
       }
       
       return {
-        exists: !!data,
+        exists: data?.exists || false,
         currentRole: data?.role
       }
     } catch (error) {
@@ -125,85 +123,47 @@ export default function InviteTeamPage() {
       const results = []
       for (const invite of validInvites) {
         try {
-          // Check if user exists first
-          const { data: userCheck } = await supabase.rpc('check_user_exists', {
-            check_email: invite.email.trim()
-          })
-          
-          // Determine invitation type
-          const invitationType = userCheck?.exists ? 'role_change' : 'new_user'
-          
-          // Check if user already has the requested role
-          if (userCheck?.exists && userCheck.role === invite.role) {
-            results.push({ 
-              email: invite.email, 
-              success: false, 
-              error: 'User already has the requested role' 
-            })
-            continue
-          }
-          
-          // Check for existing pending invitation
-          const { data: existingInvitation } = await supabase
-            .from('invitations')
-            .select('id')
-            .eq('email', invite.email.trim())
-            .eq('status', 'pending')
-            .single()
-          
-          if (existingInvitation) {
-            results.push({ 
-              email: invite.email, 
-              success: false, 
-              error: 'Pending invitation already exists for this email' 
-            })
-            continue
-          }
-          
-          // Generate token
-          const { data: tokenData } = await supabase.rpc('generate_secure_token')
-          
-          if (!tokenData) {
-            results.push({ 
-              email: invite.email, 
-              success: false, 
-              error: 'Failed to generate invitation token' 
-            })
-            continue
-          }
-          
-          // Create invitation directly
-          const { data: newInvitation, error: insertError } = await supabase
-            .from('invitations')
-            .insert({
-              email: invite.email.trim(),
-              role: invite.role,
-              invited_by: user.id,
-              token: tokenData,
-              name: invite.name?.trim() || null,
-              invitation_type: invitationType,
-              status: 'pending',
-              expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-            })
-            .select()
-            .single()
-          
-          if (insertError) {
-            console.error('Error creating invitation:', insertError)
-            results.push({ 
-              email: invite.email, 
-              success: false, 
-              error: insertError.message 
-            })
-          } else {
-            results.push({ 
-              email: invite.email, 
-              success: true, 
-              token: tokenData,
-              invitationType: invitationType,
-              existingUser: userCheck?.exists || false
-            })
-          }
+                // Get user's team_id
+      const { data: userProfile } = await supabase
+        .from('users')
+        .select('team_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (!userProfile?.team_id) {
+        results.push({ 
+          email: invite.email, 
+          success: false, 
+          error: 'Your team information is not available' 
+        })
+        continue
+      }
+      
+      // Use the new create_team_invitation function
+      const { data: invitationResult, error: inviteError } = await supabase.rpc('create_team_invitation', {
+        p_team_id: userProfile.team_id,
+        p_email: invite.email.trim(),
+        p_role: invite.role,
+        p_invited_by: user.id,
+        p_name: invite.name?.trim() || null
+      })
+      
+      if (inviteError || !invitationResult?.success) {
+        console.error('Error creating invitation:', inviteError || invitationResult?.error)
+        results.push({ 
+          email: invite.email, 
+          success: false, 
+          error: invitationResult?.error || inviteError?.message || 'Failed to create invitation'
+        })
+      } else {
+        results.push({ 
+          email: invite.email, 
+          success: true, 
+          token: invitationResult.token,
+          invitationType: invitationResult.user_exists ? 'role_change' : 'new_user',
+          existingUser: invitationResult.user_exists || false
+        })
+      }
           
         } catch (error) {
           console.error('Error processing invitation:', error)
@@ -221,42 +181,33 @@ export default function InviteTeamPage() {
       const roleChangeCount = results.filter(r => r.success && r.invitationType === 'role_change').length
       
       if (successCount > 0) {
-        // Send invitation emails
-        const { sendInvitationEmail, sendRoleChangeEmail } = await import('@/lib/email')
+        // Send invitation emails using server action
+        const { sendInvitationEmails } = await import('@/app/actions/jobs')
         
-        // Get inviter name
-        const { data: inviterProfile } = await supabase
-          .from('users')
-          .select('email')
-          .eq('id', user.id)
-          .single()
-        
-        const inviterName = inviterProfile?.email || 'Team Admin'
-        
-        // Send emails for successful invitations
-        for (const result of results.filter(r => r.success)) {
-          const invitationUrl = `${window.location.origin}/auth/invite?token=${result.token}`
-          const invite = validInvites.find(inv => inv.email === result.email)
-          
-          const emailData = {
-            email: result.email,
-            name: invite?.name,
-            role: invite?.role || 'worker',
-            inviterName,
-            invitationUrl,
-            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString()
-          }
-          
-          try {
-            if (result.invitationType === 'role_change') {
-              await sendRoleChangeEmail(emailData)
-            } else {
-              await sendInvitationEmail(emailData)
+        const emailInvitations = results
+          .filter(r => r.success && r.token && r.invitationType)
+          .map(result => {
+            const invite = validInvites.find(inv => inv.email === result.email)
+            return {
+              email: result.email,
+              token: result.token as string,
+              role: (invite?.role || 'worker') as string,
+              name: invite?.name,
+              invitationType: result.invitationType as 'new_user' | 'role_change'
             }
-            console.log(`📧 Invitation email sent to ${result.email}`)
-          } catch (emailError) {
-            console.error(`Failed to send email to ${result.email}:`, emailError)
+          })
+        
+        try {
+          const emailResult = await sendInvitationEmails(emailInvitations)
+          if (emailResult.success) {
+            const emailSuccessCount = emailResult.results?.filter(r => r.success).length || 0
+            const emailFailureCount = emailResult.results?.filter(r => !r.success).length || 0
+            console.log(`📧 ${emailSuccessCount} emails sent successfully, ${emailFailureCount} failed`)
+          } else {
+            console.error('Failed to send invitation emails:', emailResult.error)
           }
+        } catch (emailError) {
+          console.error('Error sending invitation emails:', emailError)
         }
         
         let successMessage = `Successfully created ${successCount} invitation${successCount > 1 ? 's' : ''}!`

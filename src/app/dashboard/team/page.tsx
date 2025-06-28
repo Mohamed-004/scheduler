@@ -72,25 +72,32 @@ export default async function TeamPage() {
     workersCount: allWorkers?.length || 0
   })
 
-  // Get invitation history (both pending and accepted)
-  const { data: invitationHistory } = await supabase
-    .from('invitations')
+  // Get invitation history (both pending and accepted) - FIXED: Use team_invitations table
+  const { data: invitationHistory, error: invitationError } = await supabase
+    .from('team_invitations')
     .select(`
       id,
       email,
       role,
       name,
-      invitation_type,
       status,
       created_at,
       expires_at,
       accepted_at,
       invited_by,
-      inviter:users!invited_by(email)
+      token,
+      team_id,
+      inviter:users!invited_by(email, name)
     `)
+    .eq('team_id', userProfile.team_id)
     .order('created_at', { ascending: false })
 
-  console.log('Team page - Invitation history:', invitationHistory)
+  console.log('Team page - Invitation history:', {
+    data: invitationHistory,
+    error: invitationError,
+    count: invitationHistory?.length || 0,
+    teamId: userProfile.team_id
+  })
 
   // Filter invitations by status for display
   const pendingInvitations = invitationHistory?.filter(inv => inv.status === 'pending') || []
@@ -266,8 +273,8 @@ export default async function TeamPage() {
                         {invitation.status === 'pending' && ` • Expires ${new Date(invitation.expires_at).toLocaleDateString()}`}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Type: {invitation.invitation_type === 'role_change' ? 'Role Change' : 'New User'} • 
-                        Invited by: {invitation.inviter?.email || 'Unknown'}
+                        Role: {invitation.role} • 
+                        Invited by: {invitation.inviter?.email || invitation.inviter?.name || 'Unknown'}
                       </p>
                     </div>
                   </div>

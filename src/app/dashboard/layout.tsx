@@ -16,7 +16,7 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
     redirect('/auth/signin')
   }
 
-  // Get user profile for display
+  // Get user profile - should work now that RLS circular dependency is fixed
   const { data: userProfile } = await supabase
     .from('users')
     .select('*')
@@ -27,12 +27,12 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
   let hasPendingInvitation = false
   if (userProfile?.email) {
     const { data: pendingInvitation } = await supabase
-      .from('invitations')
+      .from('team_invitations')
       .select('id')
       .eq('email', userProfile.email)
       .eq('status', 'pending')
       .gt('expires_at', new Date().toISOString())
-      .single()
+      .maybeSingle()
     
     hasPendingInvitation = !!pendingInvitation
   }

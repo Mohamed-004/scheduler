@@ -43,13 +43,15 @@ export default function SignInPage() {
   const onSubmit = async (data: SignInForm) => {
     setIsLoading(true)
     try {
-      const formData = new FormData()
-      formData.append('email', data.email)
-      formData.append('password', data.password)
-      if (data.remember) {
-        formData.append('remember', 'on')
+      const result = await signIn(data.email, data.password)
+      
+      if (result.error) {
+        // Handle error - could show toast notification
+        console.error('Signin error:', result.error)
+      } else {
+        // Success - user will be redirected by middleware
+        window.location.href = '/dashboard'
       }
-      await signIn(formData)
     } catch (error) {
       console.error('Signin error:', error)
     } finally {
