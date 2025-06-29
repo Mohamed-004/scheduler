@@ -18,7 +18,8 @@ import {
   Phone, 
   Star,
   MapPin,
-  Settings
+  Settings,
+  Award
 } from 'lucide-react'
 
 interface WorkerDetailPageProps {
@@ -44,6 +45,13 @@ export default async function WorkerDetailPage({ params }: WorkerDetailPageProps
   if (error || !worker) {
     notFound()
   }
+
+  // Get worker certifications
+  const { data: certifications } = await supabase
+    .from('worker_certifications')
+    .select('*')
+    .eq('worker_id', id)
+    .order('certification_name', { ascending: true })
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'Not set'
@@ -189,21 +197,97 @@ export default async function WorkerDetailPage({ params }: WorkerDetailPageProps
                   Special Exceptions
                 </Button>
               </Link>
+              
+              <Link href={`/dashboard/workers/${id}/certifications`}>
+                <Button variant="outline" className="w-full">
+                  <Award className="h-4 w-4 mr-2" />
+                  Certifications
+                </Button>
+              </Link>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Schedule Overview */}
+      {/* Certifications Overview */}
       <Card>
         <CardHeader>
-          <CardTitle>Schedule & Availability Management</CardTitle>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Certifications & Skills</CardTitle>
+              <CardDescription>
+                Current certifications and skill levels
+              </CardDescription>
+            </div>
+            <Link href={`/dashboard/workers/${id}/certifications`}>
+              <Button variant="outline">
+                <Award className="h-4 w-4 mr-2" />
+                Manage Certifications
+              </Button>
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {certifications && certifications.length > 0 ? (
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {certifications.slice(0, 6).map((cert) => (
+                <div key={cert.id} className="p-3 border rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-medium text-sm">{cert.certification_name}</h4>
+                    {cert.is_verified ? (
+                      <Badge className="bg-green-100 text-green-800 text-xs">Verified</Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-xs">Pending</Badge>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Level: {cert.proficiency_level}/5
+                    {cert.expiry_date && (
+                      <div className="mt-1">
+                        Expires: {new Date(cert.expiry_date).toLocaleDateString()}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {certifications.length > 6 && (
+                <div className="p-3 border rounded-lg border-dashed flex items-center justify-center">
+                  <Link href={`/dashboard/workers/${id}/certifications`}>
+                    <Button variant="ghost" size="sm">
+                      +{certifications.length - 6} more
+                    </Button>
+                  </Link>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <Award className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+              <h3 className="font-medium text-sm mb-2">No certifications added</h3>
+              <p className="text-xs text-muted-foreground mb-4">
+                Add certifications to track skills and qualifications
+              </p>
+              <Link href={`/dashboard/workers/${id}/certifications`}>
+                <Button size="sm">
+                  <Award className="h-4 w-4 mr-2" />
+                  Add Certifications
+                </Button>
+              </Link>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Schedule Management */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Schedule Management</CardTitle>
           <CardDescription>
-            Manage this worker's regular schedule, availability windows, and special exceptions
+            Manage this worker's regular schedule and special exceptions
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="p-4 border rounded-lg">
               <h3 className="font-medium mb-2">Regular Schedule</h3>
               <p className="text-sm text-muted-foreground mb-3">
@@ -213,19 +297,6 @@ export default async function WorkerDetailPage({ params }: WorkerDetailPageProps
                 <Button size="sm" className="w-full">
                   <Calendar className="h-4 w-4 mr-2" />
                   Manage Schedule
-                </Button>
-              </Link>
-            </div>
-            
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-medium mb-2">Availability Windows</h3>
-              <p className="text-sm text-muted-foreground mb-3">
-                Define when this worker is available for assignments
-              </p>
-              <Link href={`/dashboard/workers/${id}/availability`}>
-                <Button size="sm" variant="outline" className="w-full">
-                  <Clock className="h-4 w-4 mr-2" />
-                  Set Availability
                 </Button>
               </Link>
             </div>

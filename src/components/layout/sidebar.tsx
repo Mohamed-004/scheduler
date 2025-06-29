@@ -18,7 +18,8 @@ import {
   ChevronRight,
   Menu,
   X,
-  Bell
+  Bell,
+  UserCheck
 } from 'lucide-react'
 
 interface SidebarProps {
@@ -59,6 +60,12 @@ const navItems: NavItem[] = [
     href: '/dashboard/workers',
     icon: Users,
     label: 'Workers',
+    roles: ['admin', 'sales']
+  },
+  {
+    href: '/dashboard/roles',
+    icon: UserCheck,
+    label: 'Job Roles',
     roles: ['admin', 'sales']
   },
   {
