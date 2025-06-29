@@ -28,6 +28,8 @@ interface Crew {
 
 export default function NewJobPage() {
   const router = useRouter()
+  const [userRole, setUserRole] = useState<string | null>(null)
+  const [isCheckingRole, setIsCheckingRole] = useState(true)
   const [clients, setClients] = useState<Client[]>([])
   const [crews, setCrews] = useState<Crew[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -46,7 +48,49 @@ export default function NewJobPage() {
     equipment_required: [] as string[]
   })
 
+  // Role check and redirect
   useEffect(() => {
+    const checkUserRole = async () => {
+      const supabase = createClient()
+      
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser()
+        
+        if (error || !user) {
+          router.push('/auth/signin')
+          return
+        }
+
+        const { data: userProfile } = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', user.id)
+          .single()
+
+        if (!userProfile) {
+          router.push('/dashboard')
+          return
+        }
+
+        // Only admin and sales can create jobs
+        if (!['admin', 'sales'].includes(userProfile.role)) {
+          router.push('/dashboard/jobs')
+          return
+        }
+
+        setUserRole(userProfile.role)
+        setIsCheckingRole(false)
+      } catch (error) {
+        router.push('/dashboard')
+      }
+    }
+    
+    checkUserRole()
+  }, [router])
+
+  useEffect(() => {
+    if (!userRole || isCheckingRole) return
+    
     const fetchData = async () => {
       const supabase = createClient()
       
@@ -68,7 +112,7 @@ export default function NewJobPage() {
     }
     
     fetchData()
-  }, [])
+  }, [userRole, isCheckingRole])
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
@@ -118,6 +162,18 @@ export default function NewJobPage() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Show loading while checking role
+  if (isCheckingRole) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="flex items-center space-x-2">
+          <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full"></div>
+          <span className="text-muted-foreground">Checking permissions...</span>
+        </div>
+      </div>
+    )
   }
 
   return (

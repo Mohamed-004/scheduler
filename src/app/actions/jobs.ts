@@ -641,4 +641,104 @@ export async function sendInvitationEmails(invitations: Array<{
     console.error('Error sending invitation emails:', error)
     return { error: 'Failed to send invitation emails' }
   }
+}
+
+/**
+ * Worker-specific function to update job status (only for assigned jobs)
+ */
+export async function updateWorkerJobStatus(jobId: string, status: JobStatus, notes?: string) {
+  const supabase = await createClient()
+
+  try {
+    // Get current user
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    
+    if (userError || !user) {
+      return { error: 'User not authenticated' }
+    }
+
+    const { data: userProfile, error: profileError } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !userProfile) {
+      return { error: 'Failed to get user profile' }
+    }
+
+    // Check if user is a worker
+    if (userProfile.role !== 'worker') {
+      return { error: 'Only workers can use this function' }
+    }
+
+    // Use database function to update job status with validation
+    const { data, error } = await supabase.rpc('update_worker_job_status', {
+      p_job_id: jobId,
+      p_worker_id: user.id,
+      p_status: status,
+      p_notes: notes || null
+    })
+
+    if (error) {
+      return { error: `Failed to update job status: ${error.message}` }
+    }
+
+    if (!data.success) {
+      return { error: data.error || 'Failed to update job status' }
+    }
+
+    revalidatePath('/dashboard')
+    revalidatePath('/dashboard/jobs')
+    revalidatePath(`/dashboard/jobs/${jobId}`)
+
+    return { success: true }
+  } catch (error) {
+    return { error: 'An unexpected error occurred while updating job status' }
+  }
+}
+
+/**
+ * Get jobs assigned to the current worker
+ */
+export async function getWorkerAssignedJobs(statusFilter?: JobStatus) {
+  const supabase = await createClient()
+
+  try {
+    // Get current user
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    
+    if (userError || !user) {
+      return { error: 'User not authenticated' }
+    }
+
+    const { data: userProfile, error: profileError } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !userProfile) {
+      return { error: 'Failed to get user profile' }
+    }
+
+    // Check if user is a worker
+    if (userProfile.role !== 'worker') {
+      return { error: 'Only workers can use this function' }
+    }
+
+    // Use database function to get assigned jobs
+    const { data, error } = await supabase.rpc('get_worker_assigned_jobs', {
+      p_worker_id: user.id,
+      p_status: statusFilter || null
+    })
+
+    if (error) {
+      return { error: `Failed to fetch assigned jobs: ${error.message}` }
+    }
+
+    return { data: data || [], error: null }
+  } catch (error) {
+    return { error: 'An unexpected error occurred while fetching assigned jobs' }
+  }
 } 

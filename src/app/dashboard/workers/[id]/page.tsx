@@ -183,13 +183,6 @@ export default async function WorkerDetailPage({ params }: WorkerDetailPageProps
                 </Button>
               </Link>
               
-              <Link href={`/dashboard/workers/${id}/availability`}>
-                <Button variant="outline" className="w-full">
-                  <Clock className="h-4 w-4 mr-2" />
-                  Set Availability
-                </Button>
-              </Link>
-              
               <Link href={`/dashboard/workers/${id}/exceptions`}>
                 <Button variant="outline" className="w-full">
                   <Settings className="h-4 w-4 mr-2" />

@@ -1,12 +1,34 @@
 // Database table types for the team-based scheduler system
 
-// Team types (matches new schema)
+// Team member interface (for the JSONB array in teams table)
+export interface TeamMember {
+  id: string
+  email: string
+  name: string
+  role: 'admin' | 'sales' | 'worker'
+  phone: string
+  hourly_rate: number
+  tz: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+// Enhanced Team types (matches new schema with members array)
 export interface Team {
   id: string
   name: string
   description?: string
+  members: TeamMember[] // New JSONB array with all team members
   created_at: string
   updated_at: string
+}
+
+// Extended Team interface with computed stats
+export interface TeamWithStats extends Team {
+  member_count: number
+  admin_count: number
+  worker_count: number
 }
 
 // Updated User interface (matches new consolidated schema)
@@ -80,7 +102,7 @@ export interface TeamInvitation {
   updated_at: string
 }
 
-// Legacy types (for backward compatibility during migration)
+// Worker type with availability fields
 export interface Worker {
   id: string
   user_id: string
@@ -88,10 +110,37 @@ export interface Worker {
   phone: string
   rating: number
   weekly_hours: number
-  tz: string
+  specialties: string[]
+  default_schedule: WorkerSchedule
+  schedule_exceptions: ScheduleException[]
   is_active: boolean
   created_at: string
   updated_at: string
+}
+
+// Worker schedule types
+export interface WorkerSchedule {
+  monday: DaySchedule
+  tuesday: DaySchedule
+  wednesday: DaySchedule
+  thursday: DaySchedule
+  friday: DaySchedule
+  saturday: DaySchedule
+  sunday: DaySchedule
+}
+
+export interface DaySchedule {
+  start: string // HH:MM format
+  end: string   // HH:MM format
+  available: boolean
+}
+
+export interface ScheduleException {
+  date: string // YYYY-MM-DD format
+  start?: string // HH:MM format
+  end?: string   // HH:MM format
+  available: boolean
+  reason?: string
 }
 
 export interface Crew {
@@ -124,6 +173,31 @@ export interface ApiResponse<T> {
   error?: string
   success: boolean
 }
+
+// Database function response types for team operations
+export interface GetTeamWithMembersResponse {
+  id: string
+  name: string
+  description?: string
+  members: TeamMember[]
+  member_count: number
+  admin_count: number
+  worker_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface GetAllTeamsWithMembersResponse extends Array<{
+  id: string
+  name: string
+  description?: string
+  members: TeamMember[]
+  member_count: number
+  admin_count: number
+  worker_count: number
+  created_at: string
+  updated_at: string
+}> {}
 
 // Form types for team-based operations
 export interface BusinessSignupForm {
@@ -176,9 +250,18 @@ export interface TeamInvitationForm {
   name?: string
 }
 
+export interface AddMemberToTeamForm {
+  team_id: string
+  email: string
+  name: string
+  role: 'admin' | 'sales' | 'worker'
+  phone?: string
+  hourly_rate?: number
+}
+
 // Dashboard stats for team-scoped data
 export interface TeamDashboardStats {
-  team: Team
+  team: TeamWithStats
   total_jobs: number
   active_jobs: number
   completed_jobs: number
@@ -198,5 +281,4 @@ export interface InvitationAcceptResponse {
   success: boolean
   team_id?: string
   role?: string
-  error?: string
 } 

@@ -2,10 +2,11 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Plus, Calendar, Clock, CheckCircle, AlertTriangle, Search, Filter } from 'lucide-react'
+import { Plus, Calendar, Clock, CheckCircle, AlertTriangle, Search, Filter, User } from 'lucide-react'
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import Link from 'next/link'
+import { WorkerJobStatusUpdater } from '@/components/jobs/worker-job-status-updater'
 
 const getStatusIcon = (status: string) => {
   switch (status) {
@@ -64,45 +65,28 @@ export default async function JobsPage() {
 
   // Fetch jobs data based on user role
   if (userProfile.role === 'worker') {
-    // First, find the worker record for this user
-    const { data: workerRecord } = await supabase
-      .from('workers')
-      .select('id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (workerRecord) {
-      // Then find their crew memberships
-      const { data: workerCrews } = await supabase
-        .from('crew_workers')
-        .select('crew_id')
-        .eq('worker_id', workerRecord.id)
-
-      if (workerCrews && workerCrews.length > 0) {
-        const crewIds = workerCrews.map(cw => cw.crew_id)
-        const { data: jobsData, error: jobsErr } = await supabase
-          .from('jobs')
-          .select(`
-            id,
-            job_type,
-            status,
-            estimated_hours,
-            quote_amount,
-            start,
-            finish,
-            address,
-            created_at,
-            client:clients(name),
-            crew:crews(name)
-          `)
-          .in('crew_id', crewIds)
-          .order('created_at', { ascending: false })
-        
-        jobs = jobsData || []
-        jobsError = jobsErr
-      }
-      // If worker has no crews, jobs array remains empty (which is correct)
-    }
+    // Workers see only jobs assigned to them
+    const { data: jobsData, error: jobsErr } = await supabase
+      .from('jobs')
+      .select(`
+        id,
+        job_type,
+        status,
+        estimated_hours,
+        quote_amount,
+        start_time,
+        end_time,
+        address,
+        notes,
+        created_at,
+        updated_at,
+        client:clients(name, phone, email)
+      `)
+      .eq('assigned_worker_id', user.id)
+      .order('start_time', { ascending: true, nullsFirst: false })
+    
+    jobs = jobsData || []
+    jobsError = jobsErr
   } else {
     // Admin and sales can see all jobs
     const { data: jobsData, error: jobsErr } = await supabase
@@ -113,12 +97,15 @@ export default async function JobsPage() {
         status,
         estimated_hours,
         quote_amount,
-        start,
-        finish,
+        start_time,
+        end_time,
         address,
+        notes,
         created_at,
-        client:clients(name),
-        crew:crews(name)
+        updated_at,
+        assigned_worker_id,
+        client:clients(name, phone, email),
+        assigned_worker:users!assigned_worker_id(name, email)
       `)
       .order('created_at', { ascending: false })
 
@@ -133,7 +120,8 @@ export default async function JobsPage() {
   // Calculate stats
   const totalJobs = jobs.length
   const pendingJobs = jobs.filter(j => j.status === 'PENDING').length
-  const activeJobs = jobs.filter(j => j.status === 'SCHEDULED' || j.status === 'IN_PROGRESS').length
+  const scheduledJobs = jobs.filter(j => j.status === 'SCHEDULED').length
+  const inProgressJobs = jobs.filter(j => j.status === 'IN_PROGRESS').length
   const completedJobs = jobs.filter(j => j.status === 'COMPLETED').length
 
   return (
@@ -142,10 +130,13 @@ export default async function JobsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold tracking-tight text-foreground">
-            Jobs & Schedule
+            {userProfile.role === 'worker' ? 'My Jobs' : 'Jobs & Schedule'}
           </h2>
           <p className="text-muted-foreground">
-            Manage work orders and crew scheduling
+            {userProfile.role === 'worker' 
+              ? 'View and update your assigned job statuses'
+              : 'Manage work orders and crew scheduling'
+            }
           </p>
         </div>
         
@@ -166,14 +157,14 @@ export default async function JobsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Jobs
+              {userProfile.role === 'worker' ? 'My Jobs' : 'Total Jobs'}
             </CardTitle>
             <Calendar className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-foreground">{totalJobs}</div>
             <p className="text-xs text-muted-foreground">
-              All time
+              {userProfile.role === 'worker' ? 'Assigned to you' : 'All time'}
             </p>
           </CardContent>
         </Card>
@@ -181,14 +172,14 @@ export default async function JobsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Pending
+              Scheduled
             </CardTitle>
-            <Clock className="h-4 w-4 text-warning" />
+            <Calendar className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-foreground">{pendingJobs}</div>
+            <div className="text-2xl font-bold text-foreground">{scheduledJobs}</div>
             <p className="text-xs text-muted-foreground">
-              Awaiting assignment
+              Ready to start
             </p>
           </CardContent>
         </Card>
@@ -196,14 +187,14 @@ export default async function JobsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Active
+              In Progress
             </CardTitle>
             <AlertTriangle className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-foreground">{activeJobs}</div>
+            <div className="text-2xl font-bold text-foreground">{inProgressJobs}</div>
             <p className="text-xs text-muted-foreground">
-              In progress
+              Currently active
             </p>
           </CardContent>
         </Card>
@@ -229,10 +220,12 @@ export default async function JobsPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Job Schedule</CardTitle>
+              <CardTitle>
+                {userProfile.role === 'worker' ? 'My Job Schedule' : 'Job Schedule'}
+              </CardTitle>
               <CardDescription>
                 {userProfile.role === 'worker' 
-                  ? 'Your assigned jobs and schedule'
+                  ? 'Your assigned jobs and their current status'
                   : 'All jobs in the system'
                 }
               </CardDescription>
@@ -261,7 +254,7 @@ export default async function JobsPage() {
                   key={job.id}
                   className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors"
                 >
-                  <div className="flex items-start space-x-4">
+                  <div className="flex items-start space-x-4 flex-1">
                     <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
                       {getStatusIcon(job.status)}
                     </div>
@@ -284,36 +277,49 @@ export default async function JobsPage() {
                         <div className="flex items-center space-x-4 text-sm text-muted-foreground">
                           <span>{job.estimated_hours}h estimated</span>
                           <span>•</span>
-                          <span>${job.quote_amount.toLocaleString()}</span>
-                          {job.crew?.name && (
+                          <span>${job.quote_amount?.toLocaleString() || '0'}</span>
+                          {userProfile.role !== 'worker' && job.assigned_worker?.name && (
                             <>
                               <span>•</span>
-                              <span>Crew: {job.crew.name}</span>
+                              <span>Worker: {job.assigned_worker.name}</span>
                             </>
                           )}
-                          {job.start && (
+                          {job.start_time && (
                             <>
                               <span>•</span>
-                              <span>Start: {new Date(job.start).toLocaleDateString()}</span>
+                              <span>Start: {new Date(job.start_time).toLocaleDateString()}</span>
                             </>
                           )}
                         </div>
+                        {job.notes && (
+                          <p className="text-sm text-muted-foreground mt-2">
+                            <strong>Notes:</strong> {job.notes}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center space-x-2">
-                    <Link href={`/dashboard/jobs/${job.id}`}>
-                      <Button variant="outline" size="sm">
-                        View Details
-                      </Button>
-                    </Link>
-                    {(userProfile.role === 'admin' || userProfile.role === 'sales') && (
-                      <Link href={`/dashboard/jobs/${job.id}/edit`}>
-                        <Button variant="outline" size="sm">
-                          Edit
-                        </Button>
-                      </Link>
+                    {userProfile.role === 'worker' ? (
+                      <WorkerJobStatusUpdater 
+                        jobId={job.id}
+                        currentStatus={job.status}
+                        jobType={job.job_type}
+                      />
+                    ) : (
+                      <>
+                        <Link href={`/dashboard/jobs/${job.id}`}>
+                          <Button variant="outline" size="sm">
+                            View Details
+                          </Button>
+                        </Link>
+                        <Link href={`/dashboard/jobs/${job.id}/edit`}>
+                          <Button variant="outline" size="sm">
+                            Edit
+                          </Button>
+                        </Link>
+                      </>
                     )}
                   </div>
                 </div>
@@ -327,7 +333,7 @@ export default async function JobsPage() {
               </h3>
               <p className="text-muted-foreground mb-4">
                 {userProfile.role === 'worker' 
-                  ? 'No jobs have been assigned to your crews yet'
+                  ? 'No jobs have been assigned to you yet'
                   : 'Get started by creating your first job'
                 }
               </p>

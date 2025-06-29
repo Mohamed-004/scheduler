@@ -56,12 +56,15 @@ export default async function DashboardPage() {
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
           <p className="text-muted-foreground">
-            Welcome back! Here's what's happening with your crew.
+            {userProfile.role === 'worker' 
+              ? 'Welcome back! Here are your assigned jobs and schedule.'
+              : "Welcome back! Here's what's happening with your crew."
+            }
           </p>
         </div>
       </div>
 
-      <DashboardContent />
+      <DashboardContent userRole={userProfile.role} userId={userProfile.id} />
     </div>
   )
 } 

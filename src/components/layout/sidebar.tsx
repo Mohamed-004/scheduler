@@ -47,7 +47,13 @@ const navItems: NavItem[] = [
     href: '/dashboard/jobs',
     icon: Calendar,
     label: 'Jobs & Schedule',
-    roles: ['admin', 'sales', 'worker']
+    roles: ['admin', 'sales']
+  },
+  {
+    href: '/dashboard/jobs',
+    icon: Calendar,
+    label: 'My Jobs',
+    roles: ['worker']
   },
   {
     href: '/dashboard/workers',
@@ -60,6 +66,12 @@ const navItems: NavItem[] = [
     icon: Users,
     label: 'Team Management',
     roles: ['admin', 'sales']
+  },
+  {
+    href: '/dashboard/team',
+    icon: Users,
+    label: 'Team',
+    roles: ['worker']
   },
   {
     href: '/dashboard/crews',
