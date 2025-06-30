@@ -28,6 +28,7 @@ export interface CreateJobRoleData {
   physical_demands?: string
   equipment_required?: string[]
   color_code?: string
+  is_active?: boolean
 }
 
 export async function getJobRoles() {
@@ -291,7 +292,7 @@ export async function getJobRoleStats(roleId: string) {
 
     const stats = {
       qualified_workers: qualifiedWorkers?.available_workers?.length || 0,
-      active_jobs: jobsUsingRole?.filter(j => j.jobs?.status !== 'COMPLETED').length || 0,
+      active_jobs: jobsUsingRole?.filter((j: any) => j.jobs?.status !== 'COMPLETED').length || 0,
       total_jobs: jobsUsingRole?.length || 0
     }
 

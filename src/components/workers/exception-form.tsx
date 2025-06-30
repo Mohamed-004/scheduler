@@ -28,6 +28,7 @@ import {
   deleteScheduleException,
   type ScheduleException 
 } from '@/app/actions/worker-exceptions'
+import { getMinDateString } from '@/lib/date-utils'
 
 interface ExceptionFormProps {
   workerId: string
@@ -68,6 +69,7 @@ export function ExceptionForm({ workerId, initialExceptions, workerName }: Excep
   const [editingException, setEditingException] = useState<ScheduleException | null>(null)
   const [isPending, startTransition] = useTransition()
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [errors, setErrors] = useState<Record<string, string>>({})
 
   // Form state for new/edit exception
   const [formData, setFormData] = useState<{
@@ -108,9 +110,51 @@ export function ExceptionForm({ workerId, initialExceptions, workerName }: Excep
     setEditingException(null)
   }
 
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {}
+    
+    if (!formData.title.trim()) {
+      newErrors.title = 'Title is required'
+    }
+    
+    if (!formData.startDate) {
+      newErrors.startDate = 'Start date is required'
+    } else {
+      const startDate = new Date(formData.startDate)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      if (startDate < today) {
+        newErrors.startDate = 'Start date cannot be in the past'
+      }
+    }
+    
+    if (!formData.endDate) {
+      newErrors.endDate = 'End date is required'
+    } else if (formData.startDate) {
+      const startDate = new Date(formData.startDate)
+      const endDate = new Date(formData.endDate)
+      if (endDate < startDate) {
+        newErrors.endDate = 'End date must be after start date'
+      }
+    }
+    
+    if (!formData.isFullDay) {
+      if (formData.startTime && formData.endTime) {
+        const start = new Date(`2000-01-01T${formData.startTime}:00`)
+        const end = new Date(`2000-01-01T${formData.endTime}:00`)
+        if (end <= start) {
+          newErrors.endTime = 'End time must be after start time'
+        }
+      }
+    }
+    
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
+
   const handleCreate = () => {
-    if (!formData.title || !formData.startDate || !formData.endDate) {
-      toast.error('Please fill in all required fields')
+    if (!validateForm()) {
+      toast.error('Please fix the errors and try again')
       return
     }
 
@@ -131,8 +175,12 @@ export function ExceptionForm({ workerId, initialExceptions, workerName }: Excep
   }
 
   const handleUpdate = () => {
-    if (!editingException || !formData.title || !formData.startDate || !formData.endDate) {
-      toast.error('Please fill in all required fields')
+    if (!editingException) {
+      return
+    }
+    
+    if (!validateForm()) {
+      toast.error('Please fix the errors and try again')
       return
     }
 
@@ -243,35 +291,67 @@ export function ExceptionForm({ workerId, initialExceptions, workerName }: Excep
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="exception-title">Title</Label>
+                <Label htmlFor="exception-title">Title *</Label>
                 <Input
                   id="exception-title"
                   value={formData.title}
-                  onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                  onChange={(e) => {
+                    setFormData(prev => ({ ...prev, title: e.target.value }))
+                    if (errors.title) setErrors(prev => ({ ...prev, title: '' }))
+                  }}
                   placeholder="e.g., Summer Vacation"
+                  className={errors.title ? 'border-red-500' : ''}
                 />
+                {errors.title && (
+                  <p className="text-sm text-red-600 mt-1 flex items-center">
+                    <AlertTriangle className="h-4 w-4 mr-1" />
+                    {errors.title}
+                  </p>
+                )}
               </div>
             </div>
             
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="start-date">Start Date</Label>
+                <Label htmlFor="start-date">Start Date *</Label>
                 <Input
                   id="start-date"
                   type="date"
+                  min={getMinDateString()}
                   value={formData.startDate}
-                  onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                  onChange={(e) => {
+                    setFormData(prev => ({ ...prev, startDate: e.target.value }))
+                    if (errors.startDate) setErrors(prev => ({ ...prev, startDate: '' }))
+                  }}
+                  className={errors.startDate ? 'border-red-500' : ''}
                 />
+                {errors.startDate && (
+                  <p className="text-sm text-red-600 mt-1 flex items-center">
+                    <AlertTriangle className="h-4 w-4 mr-1" />
+                    {errors.startDate}
+                  </p>
+                )}
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="end-date">End Date</Label>
+                <Label htmlFor="end-date">End Date *</Label>
                 <Input
                   id="end-date"
                   type="date"
+                  min={formData.startDate || getMinDateString()}
                   value={formData.endDate}
-                  onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                  onChange={(e) => {
+                    setFormData(prev => ({ ...prev, endDate: e.target.value }))
+                    if (errors.endDate) setErrors(prev => ({ ...prev, endDate: '' }))
+                  }}
+                  className={errors.endDate ? 'border-red-500' : ''}
                 />
+                {errors.endDate && (
+                  <p className="text-sm text-red-600 mt-1 flex items-center">
+                    <AlertTriangle className="h-4 w-4 mr-1" />
+                    {errors.endDate}
+                  </p>
+                )}
               </div>
             </div>
             
@@ -296,8 +376,18 @@ export function ExceptionForm({ workerId, initialExceptions, workerName }: Excep
                     id="start-time"
                     type="time"
                     value={formData.startTime}
-                    onChange={(e) => setFormData(prev => ({ ...prev, startTime: e.target.value }))}
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, startTime: e.target.value }))
+                      if (errors.startTime) setErrors(prev => ({ ...prev, startTime: '' }))
+                    }}
+                    className={errors.startTime ? 'border-red-500' : ''}
                   />
+                  {errors.startTime && (
+                    <p className="text-sm text-red-600 mt-1 flex items-center">
+                      <AlertTriangle className="h-4 w-4 mr-1" />
+                      {errors.startTime}
+                    </p>
+                  )}
                 </div>
                 
                 <div className="space-y-2">
@@ -306,8 +396,18 @@ export function ExceptionForm({ workerId, initialExceptions, workerName }: Excep
                     id="end-time"
                     type="time"
                     value={formData.endTime}
-                    onChange={(e) => setFormData(prev => ({ ...prev, endTime: e.target.value }))}
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, endTime: e.target.value }))
+                      if (errors.endTime) setErrors(prev => ({ ...prev, endTime: '' }))
+                    }}
+                    className={errors.endTime ? 'border-red-500' : ''}
                   />
+                  {errors.endTime && (
+                    <p className="text-sm text-red-600 mt-1 flex items-center">
+                      <AlertTriangle className="h-4 w-4 mr-1" />
+                      {errors.endTime}
+                    </p>
+                  )}
                 </div>
               </div>
             )}

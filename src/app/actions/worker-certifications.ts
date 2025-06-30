@@ -188,7 +188,7 @@ export async function updateWorkerCertification(
     // Check permissions
     if (userProfile.role === 'worker') {
       // Workers can only modify their own certifications
-      if (certification.workers?.user_id !== user.id) {
+      if ((certification.workers as any)?.user_id !== user.id) {
         return { success: false, error: 'You can only modify your own certifications' }
       }
     } else if (!['admin', 'sales'].includes(userProfile.role)) {
@@ -254,7 +254,7 @@ export async function deleteWorkerCertification(certificationId: string) {
     // Check permissions
     if (userProfile.role === 'worker') {
       // Workers can only delete their own certifications
-      if (certification.workers?.user_id !== user.id) {
+      if ((certification.workers as any)?.user_id !== user.id) {
         return { success: false, error: 'You can only delete your own certifications' }
       }
     } else if (!['admin', 'sales'].includes(userProfile.role)) {

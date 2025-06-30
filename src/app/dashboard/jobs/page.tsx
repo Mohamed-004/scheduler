@@ -72,8 +72,8 @@ export default async function JobsPage() {
         id,
         job_type,
         status,
-        estimated_hours,
         quote_amount,
+        remaining_balance,
         start_time,
         end_time,
         address,
@@ -95,8 +95,8 @@ export default async function JobsPage() {
         id,
         job_type,
         status,
-        estimated_hours,
         quote_amount,
+        remaining_balance,
         start_time,
         end_time,
         address,
@@ -275,9 +275,9 @@ export default async function JobsPage() {
                           <strong>Address:</strong> {job.address}
                         </p>
                         <div className="flex items-center space-x-4 text-sm text-muted-foreground">
-                          <span>{job.estimated_hours}h estimated</span>
+                          <span>Total: ${job.quote_amount?.toLocaleString() || '0'}</span>
                           <span>•</span>
-                          <span>${job.quote_amount?.toLocaleString() || '0'}</span>
+                          <span>Balance: ${job.remaining_balance?.toLocaleString() || '0'}</span>
                           {userProfile.role !== 'worker' && job.assigned_worker?.name && (
                             <>
                               <span>•</span>

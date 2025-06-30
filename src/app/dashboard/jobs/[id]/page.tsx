@@ -24,13 +24,14 @@ import {
 } from 'lucide-react'
 
 interface JobDetailPageProps {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 export default async function JobDetailPage({ params }: JobDetailPageProps) {
-  const result = await getJob(params.id)
+  const { id } = await params
+  const result = await getJob(id)
 
   if (!result.success) {
     notFound()
@@ -119,19 +120,21 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
               
               <div className="space-y-2">
                 <div className="flex items-center space-x-2 text-sm">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-medium">Estimated Hours:</span>
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium">Project Total:</span>
                 </div>
-                <p className="text-sm pl-6">{job.estimated_hours} hours</p>
+                <p className="text-sm pl-6 font-semibold text-green-600">
+                  {formatCurrency(job.quote_amount)}
+                </p>
               </div>
               
               <div className="space-y-2">
                 <div className="flex items-center space-x-2 text-sm">
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-medium">Quote Amount:</span>
+                  <span className="font-medium">Remaining Balance:</span>
                 </div>
-                <p className="text-sm pl-6 font-semibold text-green-600">
-                  {formatCurrency(job.quote_amount)}
+                <p className="text-sm pl-6 font-semibold text-orange-600">
+                  {formatCurrency(job.remaining_balance)}
                 </p>
               </div>
             </div>
@@ -160,7 +163,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
                 <Calendar className="h-4 w-4 text-muted-foreground" />
                 <span className="font-medium">Start:</span>
               </div>
-              <p className="text-sm pl-6">{formatDate(job.start)}</p>
+              <p className="text-sm pl-6">{formatDate(job.scheduled_start)}</p>
             </div>
             
             <div className="space-y-2">
@@ -168,7 +171,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
                 <Calendar className="h-4 w-4 text-muted-foreground" />
                 <span className="font-medium">Finish:</span>
               </div>
-              <p className="text-sm pl-6">{formatDate(job.finish)}</p>
+              <p className="text-sm pl-6">{formatDate(job.scheduled_end)}</p>
             </div>
             
             <div className="space-y-2">

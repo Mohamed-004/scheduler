@@ -12,9 +12,9 @@ import { ScheduleForm } from '@/components/workers/schedule-form'
 import { getWorkerSchedule } from '@/app/actions/worker-schedule'
 
 interface WorkerSchedulePageProps {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 export default async function WorkerSchedulePage({ params }: WorkerSchedulePageProps) {

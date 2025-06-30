@@ -12,9 +12,9 @@ import { ExceptionForm } from '@/components/workers/exception-form'
 import { getWorkerExceptions } from '@/app/actions/worker-exceptions'
 
 interface WorkerExceptionsPageProps {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 export default async function WorkerExceptionsPage({ params }: WorkerExceptionsPageProps) {

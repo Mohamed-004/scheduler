@@ -11,12 +11,12 @@ export const jobSchema = z.object({
   crew_id: z.string().uuid('Invalid crew ID').optional().nullable(),
   job_type: z.string().min(1, 'Job type is required').max(100, 'Job type too long'),
   address: z.string().min(1, 'Address is required').max(500, 'Address too long'),
-  estimated_hours: z.number().min(0.1, 'Must be at least 0.1 hours').max(999.99, 'Too many hours'),
   quote_amount: z.number().min(0, 'Quote amount cannot be negative').max(999999.99, 'Quote amount too large'),
+  remaining_balance: z.number().min(0, 'Remaining balance cannot be negative').max(999999.99, 'Remaining balance too large'),
   equipment_required: z.array(z.string()).optional().default([]),
   status: z.enum(['PENDING', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']).optional().default('PENDING'),
-  start: z.string().datetime().optional().nullable(),
-  finish: z.string().datetime().optional().nullable(),
+  scheduled_start: z.string().datetime().optional().nullable(),
+  scheduled_end: z.string().datetime().optional().nullable(),
   notes: z.string().max(2000, 'Notes too long').optional().nullable()
 })
 
@@ -86,19 +86,20 @@ export const updateWorkerSchema = workerSchema.partial().extend({
   id: z.string().uuid('Invalid worker ID')
 })
 
-// Timeline item schema
-export const timelineItemSchema = z.object({
-  job_id: z.string().uuid('Invalid job ID'),
-  worker_id: z.string().uuid('Invalid worker ID'),
-  start: z.string().datetime('Invalid start time'),
-  finish: z.string().datetime('Invalid finish time').optional().nullable(),
-  notes: z.string().max(1000, 'Notes too long').optional().nullable()
-})
+// Timeline items have been removed from the current schema
+// Keeping schema definitions commented out for reference
+// export const timelineItemSchema = z.object({
+//   job_id: z.string().uuid('Invalid job ID'),
+//   worker_id: z.string().uuid('Invalid worker ID'),
+//   start: z.string().datetime('Invalid start time'),
+//   finish: z.string().datetime('Invalid finish time').optional().nullable(),
+//   notes: z.string().max(1000, 'Notes too long').optional().nullable()
+// })
 
-export const createTimelineItemSchema = timelineItemSchema
-export const updateTimelineItemSchema = timelineItemSchema.partial().extend({
-  id: z.string().uuid('Invalid timeline item ID')
-})
+// export const createTimelineItemSchema = timelineItemSchema
+// export const updateTimelineItemSchema = timelineItemSchema.partial().extend({
+//   id: z.string().uuid('Invalid timeline item ID')
+// })
 
 // Validation helper functions
 export const validateJobData = (data: unknown) => {
@@ -124,11 +125,11 @@ export const transformJobFormData = (rawData: any) => {
     crew_id: rawData.crew_id || null,
     job_type: rawData.job_type,
     address: rawData.address,
-    estimated_hours: rawData.estimated_hours ? parseFloat(rawData.estimated_hours) : undefined,
     quote_amount: rawData.quote_amount ? parseFloat(rawData.quote_amount) : undefined,
+    remaining_balance: rawData.remaining_balance ? parseFloat(rawData.remaining_balance) : undefined,
     equipment_required: rawData.equipment_required || [],
-    start: rawData.start || null,
-    finish: rawData.finish || null,
+    scheduled_start: rawData.scheduled_start || null,
+    scheduled_end: rawData.scheduled_end || null,
     notes: rawData.notes || null
   }
 }
@@ -139,4 +140,4 @@ export type JobUpdateData = z.infer<typeof updateJobSchema>
 export type ClientFormData = z.infer<typeof createClientSchema>
 export type CrewFormData = z.infer<typeof createCrewSchema>
 export type WorkerFormData = z.infer<typeof createWorkerSchema>
-export type TimelineItemFormData = z.infer<typeof createTimelineItemSchema> 
+// export type TimelineItemFormData = z.infer<typeof createTimelineItemSchema> 

@@ -90,11 +90,11 @@ export async function createJob(formData: CreateJobForm) {
         assigned_worker_id: formData.assigned_worker_id,
         address: formData.address,
         job_type: formData.job_type,
-        estimated_hours: formData.estimated_hours,
         quote_amount: formData.quote_amount,
+        remaining_balance: formData.remaining_balance,
         equipment_required: formData.equipment_required || [],
-        start_time: formData.start_time,
-        end_time: formData.end_time,
+        scheduled_start: formData.scheduled_start,
+        scheduled_end: formData.scheduled_end,
         notes: formData.notes,
         status: 'PENDING' as JobStatus,
       })
@@ -476,15 +476,7 @@ export async function getJob(jobId: string) {
       .select(`
         *,
         client:clients(id, name, email, phone, address),
-        crew:crews(id, name, description, is_active),
-        timeline_items(
-          id,
-          worker_id,
-          start,
-          finish,
-          notes,
-          worker:workers(id, name, phone, rating)
-        )
+        assigned_worker:users!assigned_worker_id(id, name, phone, email, role)
       `)
       .eq('id', jobId)
       .single()
@@ -517,10 +509,10 @@ export async function getJobs(filters?: {
         id,
         job_type,
         status,
-        estimated_hours,
         quote_amount,
-        start,
-        finish,
+        remaining_balance,
+        scheduled_start,
+        scheduled_end,
         address,
         created_at,
         client:clients(id, name, email),

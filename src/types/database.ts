@@ -31,7 +31,7 @@ export interface TeamWithStats extends Team {
   worker_count: number
 }
 
-// Updated User interface (matches new consolidated schema)
+// Updated User interface (matches enhanced schema)
 export interface User {
   id: string
   email: string
@@ -67,7 +67,7 @@ export type JobStatus =
   | 'COMPLETED'
   | 'CANCELLED'
 
-// Job interface (matches new schema exactly)
+// Enhanced Job interface with separate date/time fields
 export interface Job {
   id: string
   team_id: string
@@ -75,12 +75,22 @@ export interface Job {
   assigned_worker_id?: string
   address: string
   job_type: string
-  estimated_hours: number
   quote_amount: number
+  remaining_balance: number
   equipment_required: string[] // JSON array
   status: JobStatus
-  start_time?: string
-  end_time?: string
+  // Enhanced scheduling fields
+  scheduled_date?: string // DATE
+  start_time?: string // TIME
+  end_time?: string // TIME
+  duration_hours?: number // Calculated field
+  payable_hours?: number
+  actual_duration?: number
+  // Legacy fields for backwards compatibility
+  scheduled_start?: string
+  scheduled_end?: string
+  actual_start?: string
+  actual_end?: string
   notes?: string
   created_at: string
   updated_at: string
@@ -140,6 +150,44 @@ export interface ScheduleException {
   start?: string // HH:MM format
   end?: string   // HH:MM format
   available: boolean
+  reason?: string
+}
+
+
+// Job scheduling validation result
+export interface SchedulingValidation {
+  valid: boolean
+  total_workers: number
+  available_workers: number
+  required_workers: number
+  conflicts: number
+  suggestions: string[]
+}
+
+// Scheduling suggestions
+export interface SchedulingSuggestions {
+  available_slots: string[]
+  best_times: string[]
+}
+
+// Enhanced job creation data
+export interface JobCreationData {
+  client_id: string
+  job_type: string
+  address: string
+  quote_amount: number
+  remaining_balance: number
+  scheduled_date?: string
+  start_time?: string
+  end_time?: string
+  payable_hours?: number
+  equipment_required?: string[]
+  notes?: string
+}
+
+// Worker pay rate update data
+export interface PayRateUpdateData {
+  hourly_rate: number
   reason?: string
 }
 
@@ -220,11 +268,11 @@ export interface CreateJobForm {
   assigned_worker_id?: string
   address: string
   job_type: string
-  estimated_hours: number
   quote_amount: number
+  remaining_balance: number
   equipment_required?: string[]
-  start_time?: string
-  end_time?: string
+  scheduled_start?: string
+  scheduled_end?: string
   notes?: string
 }
 

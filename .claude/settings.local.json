@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rg:*)",
+      "Bash(grep:*)",
+      "Bash(SUPABASE_ACCESS_TOKEN=sbp_0e10a98951cc5872c43df06686765316a0391888 npx -y @supabase/mcp-server-supabase@latest --read-only --project-ref=bukwkmhggppksksocheq)",
+      "Bash(find:*)",
+      "Bash(npx:*)",
+      "Bash(true)",
+      "Bash(curl:*)",
+      "Bash(npm run build:*)",
+      "Bash(claude mcp)",
+      "mcp__supabase__execute_sql",
+      "mcp__supabase__generate_typescript_types",
+      "mcp__supabase__get_advisors",
+      "Bash(touch:*)"
+    ],
+    "deny": []
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
+}

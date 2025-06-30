@@ -13,7 +13,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Save, ArrowLeft } from 'lucide-react'
+import { getMinDateTimeString } from '@/lib/date-utils'
+import { Save, ArrowLeft, AlertCircle } from 'lucide-react'
 
 interface JobEditFormProps {
   job: any // We'll type this properly later
@@ -29,20 +30,94 @@ export const JobEditForm = ({ job }: JobEditFormProps) => {
     crew_id: job.crew_id || '',
     job_type: job.job_type || '',
     address: job.address || '',
-    estimated_hours: job.estimated_hours?.toString() || '',
     quote_amount: job.quote_amount?.toString() || '',
-    start: job.start ? new Date(job.start).toISOString().slice(0, 16) : '',
-    finish: job.finish ? new Date(job.finish).toISOString().slice(0, 16) : '',
+    remaining_balance: job.remaining_balance?.toString() || '',
+    scheduled_start: job.scheduled_start ? new Date(job.scheduled_start).toISOString().slice(0, 16) : '',
+    scheduled_end: job.scheduled_end ? new Date(job.scheduled_end).toISOString().slice(0, 16) : '',
     notes: job.notes || ''
   })
 
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
+    // Clear error when user starts typing
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }))
+    }
+    
+    // Real-time validation for remaining balance
+    if (field === 'remaining_balance' && formData.quote_amount) {
+      const quoteAmount = parseFloat(formData.quote_amount)
+      const remainingBalance = parseFloat(value)
+      if (remainingBalance > quoteAmount) {
+        setErrors(prev => ({ ...prev, remaining_balance: 'Remaining balance cannot exceed the project total' }))
+      }
+    }
+  }
+
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {}
+    
+    if (!formData.job_type.trim()) {
+      newErrors.job_type = 'Job type is required'
+    }
+    
+    if (!formData.address.trim()) {
+      newErrors.address = 'Job address is required'
+    }
+    
+    if (!formData.quote_amount) {
+      newErrors.quote_amount = 'Project total is required'
+    } else if (parseFloat(formData.quote_amount) <= 0) {
+      newErrors.quote_amount = 'Project total must be greater than $0'
+    }
+    
+    if (!formData.remaining_balance) {
+      newErrors.remaining_balance = 'Remaining balance is required'
+    } else {
+      const quoteAmount = parseFloat(formData.quote_amount)
+      const remainingBalance = parseFloat(formData.remaining_balance)
+      if (remainingBalance > quoteAmount) {
+        newErrors.remaining_balance = 'Remaining balance cannot exceed the project total'
+      }
+      if (remainingBalance < 0) {
+        newErrors.remaining_balance = 'Remaining balance cannot be negative'
+      }
+    }
+    
+    // Date validation
+    if (formData.scheduled_start) {
+      const startDate = new Date(formData.scheduled_start)
+      const now = new Date()
+      if (startDate < now) {
+        newErrors.scheduled_start = 'Start date cannot be in the past'
+      }
+    }
+    
+    if (formData.scheduled_end && formData.scheduled_start) {
+      const startDate = new Date(formData.scheduled_start)
+      const endDate = new Date(formData.scheduled_end)
+      if (endDate <= startDate) {
+        newErrors.scheduled_end = 'End date must be after start date'
+      }
+    }
+    
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setMessage(null)
+
+    if (!validateForm()) {
+      setMessage({ 
+        type: 'error', 
+        text: 'Please fix the errors below and try again.' 
+      })
+      return
+    }
 
     const formDataObj = new FormData()
     Object.entries(formData).forEach(([key, value]) => {
@@ -99,8 +174,14 @@ export const JobEditForm = ({ job }: JobEditFormProps) => {
                 value={formData.job_type}
                 onChange={(e) => handleInputChange('job_type', e.target.value)}
                 required
-                className="mt-1"
+                className={`mt-1 ${errors.job_type ? 'border-red-500' : ''}`}
               />
+              {errors.job_type && (
+                <p className="text-sm text-red-600 mt-1 flex items-center">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.job_type}
+                </p>
+              )}
             </div>
             
             <div>
@@ -112,66 +193,105 @@ export const JobEditForm = ({ job }: JobEditFormProps) => {
                 value={formData.address}
                 onChange={(e) => handleInputChange('address', e.target.value)}
                 required
-                className="mt-1"
+                className={`mt-1 ${errors.address ? 'border-red-500' : ''}`}
               />
+              {errors.address && (
+                <p className="text-sm text-red-600 mt-1 flex items-center">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.address}
+                </p>
+              )}
             </div>
           </div>
 
-          {/* Hours and Quote */}
+          {/* Financial Information */}
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <Label htmlFor="estimated_hours">Estimated Hours *</Label>
-              <Input
-                id="estimated_hours"
-                type="number"
-                step="0.5"
-                min="0"
-                placeholder="8.0"
-                value={formData.estimated_hours}
-                onChange={(e) => handleInputChange('estimated_hours', e.target.value)}
-                required
-                className="mt-1"
-              />
-            </div>
-            
-            <div>
-              <Label htmlFor="quote_amount">Quote Amount ($) *</Label>
+              <Label htmlFor="quote_amount">Project Total ($) *</Label>
               <Input
                 id="quote_amount"
                 type="number"
                 step="0.01"
                 min="0"
+                max="999999.99"
                 placeholder="500.00"
                 value={formData.quote_amount}
                 onChange={(e) => handleInputChange('quote_amount', e.target.value)}
                 required
-                className="mt-1"
+                className={`mt-1 ${errors.quote_amount ? 'border-red-500' : ''}`}
               />
+              {errors.quote_amount && (
+                <p className="text-sm text-red-600 mt-1 flex items-center">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.quote_amount}
+                </p>
+              )}
+            </div>
+            
+            <div>
+              <Label htmlFor="remaining_balance">Remaining Balance ($) *</Label>
+              <Input
+                id="remaining_balance"
+                type="number"
+                step="0.01"
+                min="0"
+                max={formData.quote_amount || "999999.99"}
+                placeholder="250.00"
+                value={formData.remaining_balance}
+                onChange={(e) => handleInputChange('remaining_balance', e.target.value)}
+                required
+                className={`mt-1 ${errors.remaining_balance ? 'border-red-500' : ''}`}
+              />
+              {errors.remaining_balance && (
+                <p className="text-sm text-red-600 mt-1 flex items-center">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.remaining_balance}
+                </p>
+              )}
+              {formData.quote_amount && formData.remaining_balance && (
+                <p className="text-sm text-muted-foreground mt-1">
+                  Paid: ${(parseFloat(formData.quote_amount) - parseFloat(formData.remaining_balance)).toFixed(2)}
+                </p>
+              )}
             </div>
           </div>
 
           {/* Schedule */}
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <Label htmlFor="start">Start Date & Time</Label>
+              <Label htmlFor="scheduled_start">Start Date & Time</Label>
               <Input
-                id="start"
+                id="scheduled_start"
                 type="datetime-local"
-                value={formData.start}
-                onChange={(e) => handleInputChange('start', e.target.value)}
-                className="mt-1"
+                min={getMinDateTimeString()}
+                value={formData.scheduled_start}
+                onChange={(e) => handleInputChange('scheduled_start', e.target.value)}
+                className={`mt-1 ${errors.scheduled_start ? 'border-red-500' : ''}`}
               />
+              {errors.scheduled_start && (
+                <p className="text-sm text-red-600 mt-1 flex items-center">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.scheduled_start}
+                </p>
+              )}
             </div>
             
             <div>
-              <Label htmlFor="finish">End Date & Time</Label>
+              <Label htmlFor="scheduled_end">End Date & Time</Label>
               <Input
-                id="finish"
+                id="scheduled_end"
                 type="datetime-local"
-                value={formData.finish}
-                onChange={(e) => handleInputChange('finish', e.target.value)}
-                className="mt-1"
+                min={formData.scheduled_start || getMinDateTimeString()}
+                value={formData.scheduled_end}
+                onChange={(e) => handleInputChange('scheduled_end', e.target.value)}
+                className={`mt-1 ${errors.scheduled_end ? 'border-red-500' : ''}`}
               />
+              {errors.scheduled_end && (
+                <p className="text-sm text-red-600 mt-1 flex items-center">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.scheduled_end}
+                </p>
+              )}
             </div>
           </div>
 

@@ -1,6 +1,6 @@
 /**
- * Worker Certifications Management Page
- * Allows workers and admins to manage certifications and skills
+ * Worker Roles Management Page
+ * Allows admins and sales to assign job roles to workers
  */
 
 import { notFound, redirect } from 'next/navigation'
@@ -8,16 +8,15 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, Award } from 'lucide-react'
-import { WorkerCertificationsManager } from '@/components/workers/worker-certifications-manager'
-import { getWorkerCertifications } from '@/app/actions/worker-certifications'
+import { WorkerRolesManager } from '@/components/workers/worker-roles-manager'
 
-interface WorkerCertificationsPageProps {
-  params: {
+interface WorkerRolesPageProps {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
-export default async function WorkerCertificationsPage({ params }: WorkerCertificationsPageProps) {
+export default async function WorkerRolesPage({ params }: WorkerRolesPageProps) {
   const supabase = await createClient()
   const { id } = await params
   
@@ -51,24 +50,37 @@ export default async function WorkerCertificationsPage({ params }: WorkerCertifi
     notFound()
   }
 
-  // Check if user can access this worker's certifications
+  // Check if user can access this worker's roles
   const canAccess = 
-    ['admin', 'sales'].includes(userProfile.role) && userProfile.team_id === worker.user?.team_id ||
-    worker.user?.id === user.id
+    ['admin', 'sales'].includes(userProfile.role) && userProfile.team_id === worker.user?.team_id
 
   if (!canAccess) {
     redirect('/dashboard')
   }
 
-  // Determine if user can edit certifications
-  const canEdit = 
-    userProfile.role === 'admin' || 
-    userProfile.role === 'sales' ||
-    worker.user?.id === user.id
+  // Get available job roles for the team
+  const { data: availableRoles } = await supabase
+    .from('job_roles')
+    .select('*')
+    .eq('team_id', userProfile.team_id)
+    .eq('is_active', true)
+    .order('name', { ascending: true })
 
-  // Get worker certifications
-  const certificationsResult = await getWorkerCertifications(id)
-  const certifications = certificationsResult.success ? certificationsResult.data || [] : []
+  // Get current worker role assignments
+  const { data: currentAssignments } = await supabase
+    .from('worker_role_assignments')
+    .select(`
+      *,
+      job_role:job_roles(
+        id,
+        name,
+        description,
+        color_code,
+        hourly_rate_base
+      )
+    `)
+    .eq('worker_id', worker.user?.id)
+    .order('assigned_at', { ascending: false })
 
   return (
     <div className="space-y-6">
@@ -84,21 +96,22 @@ export default async function WorkerCertificationsPage({ params }: WorkerCertifi
           <div>
             <h1 className="text-2xl font-bold flex items-center">
               <Award className="h-6 w-6 mr-2" />
-              {worker.name} - Certifications
+              {worker.name} - Role Assignments
             </h1>
             <p className="text-muted-foreground">
-              Manage certifications and skill levels
+              Manage job role assignments and capabilities
             </p>
           </div>
         </div>
       </div>
 
-      {/* Certifications Manager */}
-      <WorkerCertificationsManager
-        workerId={id}
-        initialCertifications={certifications}
+      {/* Roles Manager */}
+      <WorkerRolesManager
+        workerId={worker.user?.id || ''}
+        workerName={worker.name}
+        availableRoles={availableRoles || []}
+        currentAssignments={currentAssignments || []}
         userRole={userProfile.role}
-        canEdit={canEdit}
       />
     </div>
   )

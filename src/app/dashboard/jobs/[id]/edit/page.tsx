@@ -8,13 +8,14 @@ import { getJob } from '@/app/actions/jobs'
 import { JobEditForm } from '@/components/jobs/job-edit-form'
 
 interface JobEditPageProps {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
 export default async function JobEditPage({ params }: JobEditPageProps) {
-  const result = await getJob(params.id)
+  const { id } = await params
+  const result = await getJob(id)
 
   if (!result.success) {
     notFound()
