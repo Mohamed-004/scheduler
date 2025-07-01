@@ -13,7 +13,16 @@
       "mcp__supabase__execute_sql",
       "mcp__supabase__generate_typescript_types",
       "mcp__supabase__get_advisors",
-      "Bash(touch:*)"
+      "Bash(touch:*)",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__list_migrations",
+      "mcp__supabase__apply_migration",
+      "mcp__supabase__get_logs",
+      "Bash(rm:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm run dev:*)",
+      "mcp__supabase__list_branches"
     ],
     "deny": []
   },

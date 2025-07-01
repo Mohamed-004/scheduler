@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Plus, Users, Search, Filter } from 'lucide-react'
+import { Plus, Users, Search, Filter, Star, Clock, Mail, Phone, ChevronRight, MapPin, Award } from 'lucide-react'
 import { Input } from "@/components/ui/input"
 import Link from 'next/link'
 
@@ -70,56 +70,66 @@ export default async function WorkersPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
+      <div className="grid gap-6 md:grid-cols-3">
+        <Card className="border-l-4 border-l-blue-500 bg-gradient-to-r from-blue-50/50 to-transparent hover:shadow-md transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Total Workers
             </CardTitle>
-            <Users className="h-4 w-4 text-primary" />
+            <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center">
+              <Users className="h-4 w-4 text-blue-600" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-foreground">
+            <div className="text-3xl font-bold text-foreground">
               {workers?.length || 0}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground mt-1 flex items-center">
+              <span className="inline-block w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
               Registered in system
             </p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-l-4 border-l-green-500 bg-gradient-to-r from-green-50/50 to-transparent hover:shadow-md transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Active Workers
             </CardTitle>
-            <Users className="h-4 w-4 text-success" />
+            <div className="h-8 w-8 rounded-full bg-green-100 flex items-center justify-center">
+              <Users className="h-4 w-4 text-green-600" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-foreground">
+            <div className="text-3xl font-bold text-foreground">
               {workers?.filter(w => w.is_active).length || 0}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground mt-1 flex items-center">
+              <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2"></span>
               Available for scheduling
             </p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-l-4 border-l-yellow-500 bg-gradient-to-r from-yellow-50/50 to-transparent hover:shadow-md transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
               Average Rating
             </CardTitle>
-            <Users className="h-4 w-4 text-warning" />
+            <div className="h-8 w-8 rounded-full bg-yellow-100 flex items-center justify-center">
+              <Star className="h-4 w-4 text-yellow-600 fill-current" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-foreground">
+            <div className="text-3xl font-bold text-foreground flex items-center">
               {workers && workers.length > 0 
                 ? (workers.reduce((sum, w) => sum + w.rating, 0) / workers.length).toFixed(1)
                 : '0.0'
               }
+              <Star className="h-4 w-4 text-yellow-500 fill-current ml-1" />
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground mt-1 flex items-center">
+              <span className="inline-block w-2 h-2 bg-yellow-500 rounded-full mr-2"></span>
               Out of 5.0 stars
             </p>
           </CardContent>
@@ -153,52 +163,85 @@ export default async function WorkersPage() {
             </Button>
           </div>
 
-          {/* Workers List */}
+          {/* Workers Grid */}
           {workers && workers.length > 0 ? (
-            <div className="space-y-4">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {workers.map((worker: any) => (
-                <div
-                  key={worker.id}
-                  className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors"
-                >
-                  <div className="flex items-center space-x-4">
-                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                      <span className="text-sm font-medium text-primary">
-                        {worker.name.charAt(0).toUpperCase()}
-                      </span>
-                    </div>
+                <Link key={worker.id} href={`/dashboard/workers/${worker.id}`}>
+                  <Card className="group hover:shadow-lg transition-all duration-300 hover:border-primary/20 cursor-pointer">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div className="relative">
+                            <div className="h-12 w-12 rounded-full bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center ring-2 ring-primary/20">
+                              <span className="text-lg font-semibold text-primary">
+                                {worker.name.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <div className={`absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-background ${
+                              worker.is_active ? 'bg-green-500' : 'bg-gray-400'
+                            }`} />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
+                              {worker.name}
+                            </h3>
+                            <div className="flex items-center space-x-1 mt-1">
+                              <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                              <span className="text-sm font-medium text-muted-foreground">
+                                {worker.rating}/5
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                      </div>
+                    </CardHeader>
                     
-                    <div className="space-y-1">
-                      <div className="flex items-center space-x-2">
-                        <h3 className="font-medium text-foreground">{worker.name}</h3>
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                    <CardContent className="space-y-4">
+                      {/* Contact Info */}
+                      <div className="space-y-2">
+                        <div className="flex items-center space-x-2 text-sm">
+                          <Mail className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                          <span className="text-muted-foreground truncate">
+                            {worker.user?.email || 'No email'}
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-2 text-sm">
+                          <Phone className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                          <span className="text-muted-foreground">
+                            {worker.phone || 'No phone'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Stats */}
+                      <div className="flex items-center justify-between pt-2 border-t border-border/50">
+                        <div className="flex items-center space-x-1">
+                          <Clock className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">
+                            {worker.weekly_hours}h/week
+                          </span>
+                        </div>
+                        <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                           worker.is_active 
-                            ? 'bg-success/10 text-success border border-success/20' 
-                            : 'bg-muted text-muted-foreground border border-border'
+                            ? 'bg-green-50 text-green-700 border border-green-200' 
+                            : 'bg-gray-50 text-gray-600 border border-gray-200'
                         }`}>
                           {worker.is_active ? 'Active' : 'Inactive'}
-                        </span>
+                        </div>
                       </div>
-                      <div className="flex items-center space-x-4 text-sm text-muted-foreground">
-                        <span>{worker.phone}</span>
-                        <span>•</span>
-                        <span>{worker.user?.email || 'No email'}</span>
-                        <span>•</span>
-                        <span>⭐ {worker.rating}/5</span>
-                        <span>•</span>
-                        <span>{worker.weekly_hours}h/week</span>
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center space-x-2">
-                    <Link href={`/dashboard/workers/${worker.id}`}>
-                      <Button variant="outline" size="sm">
-                        View Details
-                      </Button>
-                    </Link>
-                  </div>
-                </div>
+                      {/* Member Since */}
+                      <div className="text-xs text-muted-foreground">
+                        Member since {new Date(worker.created_at).toLocaleDateString('en-US', { 
+                          month: 'short', 
+                          year: 'numeric' 
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
               ))}
             </div>
           ) : (

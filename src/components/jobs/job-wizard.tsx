@@ -11,6 +11,10 @@ import { SimpleAlert, type AlertItem } from "@/components/ui/simple-alert"
 import { ArrowLeft, ArrowRight, CheckCircle, AlertTriangle, Users, Plus, User, Clock } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { getMinDateString, isDateInPast } from '@/lib/date-utils'
+import { intelligentScheduler, type SchedulingResult, type RoleValidationResult } from '@/lib/intelligent-scheduling'
+import { WorkerSelector } from '@/components/jobs/worker-selector'
+import { type JobRequirement } from '@/lib/worker-availability'
+import { type AssignmentSuggestion, type JobData } from '@/lib/job-assignment'
 
 interface Client {
   id: string
@@ -39,6 +43,19 @@ export function JobWizard({ userProfile }: JobWizardProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [validationIssues, setValidationIssues] = useState<AlertItem[]>([])
+  const [schedulingResult, setSchedulingResult] = useState<SchedulingResult | null>(null)
+  const [isCheckingAvailability, setIsCheckingAvailability] = useState(false)
+  const [selectedAssignment, setSelectedAssignment] = useState<AssignmentSuggestion | null>(null)
+
+  // Add logging for selection changes
+  const handleAssignmentSelect = (assignment: AssignmentSuggestion) => {
+    console.log('🎯 JOB WIZARD: Assignment selection received:', assignment)
+    console.log('🎯 JOB WIZARD: Previous selected assignment:', selectedAssignment)
+    setSelectedAssignment(assignment)
+    console.log('🎯 JOB WIZARD: setSelectedAssignment called with:', assignment)
+  }
+  const [roleValidationResult, setRoleValidationResult] = useState<RoleValidationResult | null>(null)
+  const [isValidatingRoles, setIsValidatingRoles] = useState(false)
 
   // Form data
   const [formData, setFormData] = useState({
@@ -128,6 +145,24 @@ export function JobWizard({ userProfile }: JobWizardProps) {
     }
     fetchData()
   }, [userProfile.team_id])
+
+  // Auto-check availability when schedule fields are complete
+  useEffect(() => {
+    if (formData.scheduled_date && formData.start_time && formData.end_time && formData.worker_count) {
+      const timer = setTimeout(() => {
+        checkSchedulingAvailability()
+      }, 500) // Debounce to avoid too many calls
+      
+      return () => clearTimeout(timer)
+    }
+  }, [formData.scheduled_date, formData.start_time, formData.end_time, formData.worker_count, formData.job_role_ids])
+
+  // Validate roles when entering Review step
+  useEffect(() => {
+    if (currentStep === 5) { // Review step
+      validateRolesForReview()
+    }
+  }, [currentStep, formData.scheduled_date, formData.start_time, formData.end_time, formData.worker_count, formData.job_role_ids])
 
   const validateCurrentStep = (): boolean => {
     const newErrors: Record<string, string> = {}
@@ -236,32 +271,18 @@ export function JobWizard({ userProfile }: JobWizardProps) {
             message: 'Please select when this job should be performed'
           })
         } else {
-          // DEBUG: Log all the values for troubleshooting
-          const todayString = getMinDateString()
-          const selectedDate = formData.scheduled_date
-          const dateIsInPast = isDateInPast(formData.scheduled_date)
-          
-          console.log('=== DATE VALIDATION DEBUG ===')
-          console.log('Current time:', new Date().toISOString())
-          console.log('Selected date string:', selectedDate)
-          console.log('Today string from getMinDateString():', todayString)
-          console.log('isDateInPast result:', dateIsInPast)
-          console.log('Dates are equal:', selectedDate === todayString)
-          
           // Check if the selected date is in the past
-          if (dateIsInPast) {
-            console.log('❌ Date validation failed - flagging as past date')
+          if (isDateInPast(formData.scheduled_date)) {
             issues.push({
               id: 'date_past',
               title: 'Invalid Job Date',
               message: 'Job date cannot be in the past',
               suggestions: ['Please select today or a future date']
             })
-          } else {
-            console.log('✅ Date validation passed')
           }
           
           // If it's today, check if the selected time is in the past
+          const todayString = getMinDateString()
           if (formData.scheduled_date === todayString && formData.start_time) {
             const now = new Date()
             const selectedDateTime = new Date(`${formData.scheduled_date}T${formData.start_time}:00`)
@@ -269,22 +290,13 @@ export function JobWizard({ userProfile }: JobWizardProps) {
             // Add 30 minutes buffer for realistic scheduling
             const thirtyMinutesFromNow = new Date(now.getTime() + 30 * 60 * 1000)
             
-            console.log('=== TIME VALIDATION DEBUG ===')
-            console.log('Current time:', now.toISOString())
-            console.log('Selected datetime:', selectedDateTime.toISOString())
-            console.log('30 min from now:', thirtyMinutesFromNow.toISOString())
-            console.log('Time is in past:', selectedDateTime < thirtyMinutesFromNow)
-            
             if (selectedDateTime < thirtyMinutesFromNow) {
-              console.log('❌ Time validation failed')
               issues.push({
                 id: 'time_past',
                 title: 'Invalid Start Time',
                 message: 'Start time must be at least 30 minutes from now for today\'s jobs',
                 suggestions: ['Please select a time that is at least 30 minutes from now']
               })
-            } else {
-              console.log('✅ Time validation passed')
             }
           }
         }
@@ -340,6 +352,32 @@ export function JobWizard({ userProfile }: JobWizardProps) {
             }
           })
         }
+        
+        // Check for critical availability issues
+        if (schedulingResult && schedulingResult.issues.some(issue => 
+          issue.type === 'error' && ['NO_WORKERS', 'NO_WORKERS_WITH_ROLE', 'INSUFFICIENT_WORKERS'].includes(issue.code)
+        )) {
+          const criticalIssues = schedulingResult.issues.filter(issue => 
+            issue.type === 'error' && ['NO_WORKERS', 'NO_WORKERS_WITH_ROLE', 'INSUFFICIENT_WORKERS'].includes(issue.code)
+          )
+          
+          criticalIssues.forEach(issue => {
+            issues.push({
+              id: `availability_${issue.code}`,
+              title: 'Worker Availability Issue',
+              message: issue.message,
+              suggestions: issue.suggestions,
+              action: issue.actions?.[0] ? {
+                label: issue.actions[0].label,
+                onClick: () => {
+                  if (issue.actions?.[0]?.action === 'navigate') {
+                    window.open(issue.actions[0].data, '_blank')
+                  }
+                }
+              } : undefined
+            })
+          })
+        }
         break
     }
 
@@ -368,6 +406,10 @@ export function JobWizard({ userProfile }: JobWizardProps) {
     if (validationIssues.length > 0) {
       setValidationIssues([])
     }
+    // Clear scheduling result when relevant fields change
+    if (['scheduled_date', 'start_time', 'end_time', 'worker_count'].includes(field)) {
+      setSchedulingResult(null)
+    }
   }
 
   const handleNestedInputChange = (parent: string, field: string, value: string) => {
@@ -390,6 +432,59 @@ export function JobWizard({ userProfile }: JobWizardProps) {
     // Clear validation issues when user makes changes
     if (validationIssues.length > 0) {
       setValidationIssues([])
+    }
+    // Clear scheduling result when roles change
+    setSchedulingResult(null)
+  }
+
+  const checkSchedulingAvailability = async () => {
+    if (!formData.scheduled_date || !formData.start_time || !formData.end_time || !formData.worker_count) {
+      return
+    }
+
+    setIsCheckingAvailability(true)
+    
+    try {
+      const result = await intelligentScheduler.validateJobScheduling({
+        teamId: userProfile.team_id,
+        scheduledDate: formData.scheduled_date,
+        startTime: formData.start_time,
+        endTime: formData.end_time,
+        requiredWorkers: parseInt(formData.worker_count),
+        requiredRoles: formData.job_role_ids.length > 0 ? formData.job_role_ids : undefined
+      })
+      
+      setSchedulingResult(result)
+    } catch (error) {
+      console.error('Error checking availability:', error)
+    } finally {
+      setIsCheckingAvailability(false)
+    }
+  }
+
+  const validateRolesForReview = async () => {
+    if (!formData.scheduled_date || !formData.start_time || !formData.end_time || !formData.worker_count) {
+      return
+    }
+
+
+    setIsValidatingRoles(true)
+    
+    try {
+      const result = await intelligentScheduler.validateWorkerRoleMatching({
+        teamId: userProfile.team_id,
+        scheduledDate: formData.scheduled_date,
+        startTime: formData.start_time,
+        endTime: formData.end_time,
+        requiredWorkers: parseInt(formData.worker_count),
+        requiredRoles: formData.job_role_ids.length > 0 ? formData.job_role_ids : undefined
+      })
+      
+      setRoleValidationResult(result)
+    } catch (error) {
+      console.error('Error validating roles for review:', error)
+    } finally {
+      setIsValidatingRoles(false)
     }
   }
 
@@ -668,6 +763,136 @@ export function JobWizard({ userProfile }: JobWizardProps) {
                 </div>
               </div>
             )}
+
+            {/* Worker Availability Check */}
+            {formData.scheduled_date && formData.start_time && formData.end_time && formData.worker_count && (
+              <div className="space-y-4">
+                {isCheckingAvailability && (
+                  <div className="p-4 bg-gray-50 border rounded-lg">
+                    <div className="flex items-center space-x-3">
+                      <div className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"></div>
+                      <span className="text-sm text-gray-600">Checking worker availability...</span>
+                    </div>
+                  </div>
+                )}
+
+                {!isCheckingAvailability && !schedulingResult && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={checkSchedulingAvailability}
+                    className="w-full"
+                  >
+                    <Users className="h-4 w-4 mr-2" />
+                    Check Worker Availability
+                  </Button>
+                )}
+
+                {schedulingResult && (
+                  <div className="space-y-3">
+                    {schedulingResult.issues.map((issue, index) => (
+                      <div
+                        key={index}
+                        className={`p-4 border rounded-lg ${
+                          issue.type === 'error'
+                            ? 'bg-red-50 border-red-200'
+                            : issue.type === 'warning'
+                            ? 'bg-yellow-50 border-yellow-200'
+                            : 'bg-green-50 border-green-200'
+                        }`}
+                      >
+                        <div className="flex items-start space-x-3">
+                          {issue.type === 'error' ? (
+                            <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5" />
+                          ) : issue.type === 'warning' ? (
+                            <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                          ) : (
+                            <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+                          )}
+                          <div className="flex-1">
+                            <h4 className={`font-medium ${
+                              issue.type === 'error'
+                                ? 'text-red-900'
+                                : issue.type === 'warning'
+                                ? 'text-yellow-900'
+                                : 'text-green-900'
+                            }`}>
+                              {issue.title}
+                            </h4>
+                            <p className={`text-sm mt-1 ${
+                              issue.type === 'error'
+                                ? 'text-red-800'
+                                : issue.type === 'warning'
+                                ? 'text-yellow-800'
+                                : 'text-green-800'
+                            }`}>
+                              {issue.message}
+                            </p>
+                            {issue.suggestions.length > 0 && (
+                              <ul className={`text-sm mt-2 space-y-1 ${
+                                issue.type === 'error'
+                                  ? 'text-red-700'
+                                  : issue.type === 'warning'
+                                  ? 'text-yellow-700'
+                                  : 'text-green-700'
+                              }`}>
+                                {issue.suggestions.map((suggestion, idx) => (
+                                  <li key={idx} className="flex items-start">
+                                    <span className="mr-2">•</span>
+                                    <span>{suggestion}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                            {issue.actions && issue.actions.length > 0 && (
+                              <div className="mt-3 space-x-2">
+                                {issue.actions.map((action, idx) => (
+                                  <Button
+                                    key={idx}
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      if (action.action === 'navigate') {
+                                        window.open(action.data, '_blank')
+                                      }
+                                    }}
+                                  >
+                                    {action.label}
+                                  </Button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+
+                    {schedulingResult.suggestions.available_slots.length > 0 && (
+                      <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+                        <h4 className="font-medium text-indigo-900 mb-2">Alternative Time Slots</h4>
+                        <div className="grid grid-cols-2 gap-2">
+                          {schedulingResult.suggestions.available_slots.slice(0, 6).map((slot, idx) => (
+                            <Button
+                              key={idx}
+                              variant="outline"
+                              size="sm"
+                              className="text-xs"
+                              onClick={() => {
+                                const [time] = slot.split(' - ')
+                                handleInputChange('start_time', time)
+                              }}
+                            >
+                              {slot}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )
 
@@ -733,7 +958,27 @@ export function JobWizard({ userProfile }: JobWizardProps) {
                         />
                         <div className="flex-1">
                           <div className="flex items-center justify-between">
-                            <span className="font-medium text-sm">{role.name}</span>
+                            <div className="flex items-center space-x-2">
+                              <span className="font-medium text-sm">{role.name}</span>
+                              {/* Availability indicator */}
+                              {schedulingResult && formData.scheduled_date && formData.start_time && formData.end_time && (
+                                (() => {
+                                  const roleIssue = schedulingResult.issues.find(issue => 
+                                    issue.code === 'NO_WORKERS_WITH_ROLE' && issue.message.includes(role.name)
+                                  )
+                                  const hasWorkers = !roleIssue
+                                  return (
+                                    <span className={`px-2 py-0.5 text-xs rounded-full ${
+                                      hasWorkers 
+                                        ? 'bg-green-100 text-green-700 border border-green-200' 
+                                        : 'bg-red-100 text-red-700 border border-red-200'
+                                    }`}>
+                                      {hasWorkers ? '✓ Available' : '✗ No workers'}
+                                    </span>
+                                  )
+                                })()
+                              )}
+                            </div>
                             {role.hourly_rate_base && (
                               <span className="text-sm text-muted-foreground">
                                 ${role.hourly_rate_base}/hr
@@ -791,18 +1036,149 @@ export function JobWizard({ userProfile }: JobWizardProps) {
               </div>
             )}
 
-            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <div className="flex items-start space-x-3">
-                <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
-                <div>
-                  <h4 className="font-medium text-yellow-900">Worker Assignment</h4>
-                  <p className="text-sm text-yellow-800 mt-1">
-                    The system will find suitable workers based on availability and role requirements. 
-                    If no workers are available, we'll provide suggestions.
-                  </p>
+            {/* Worker Availability Summary */}
+            {formData.job_role_ids.length > 0 && formData.scheduled_date && formData.start_time && formData.end_time && (
+              <div className="space-y-4">
+                {schedulingResult ? (
+                  <div className="space-y-3">
+                    {/* Show key availability issues */}
+                    {schedulingResult.issues.filter(issue => 
+                      ['NO_WORKERS_WITH_ROLE', 'INSUFFICIENT_WORKERS', 'NO_WORKERS'].includes(issue.code)
+                    ).map((issue, index) => (
+                      <div
+                        key={index}
+                        className={`p-4 border rounded-lg ${
+                          issue.type === 'error'
+                            ? 'bg-red-50 border-red-200'
+                            : 'bg-yellow-50 border-yellow-200'
+                        }`}
+                      >
+                        <div className="flex items-start space-x-3">
+                          <AlertTriangle className={`h-5 w-5 mt-0.5 ${
+                            issue.type === 'error' ? 'text-red-600' : 'text-yellow-600'
+                          }`} />
+                          <div className="flex-1">
+                            <h4 className={`font-medium ${
+                              issue.type === 'error' ? 'text-red-900' : 'text-yellow-900'
+                            }`}>
+                              {issue.title}
+                            </h4>
+                            <p className={`text-sm mt-1 ${
+                              issue.type === 'error' ? 'text-red-800' : 'text-yellow-800'
+                            }`}>
+                              {issue.message}
+                            </p>
+                            {issue.suggestions.length > 0 && (
+                              <ul className={`text-sm mt-2 space-y-1 ${
+                                issue.type === 'error' ? 'text-red-700' : 'text-yellow-700'
+                              }`}>
+                                {issue.suggestions.slice(0, 3).map((suggestion, idx) => (
+                                  <li key={idx} className="flex items-start">
+                                    <span className="mr-2">•</span>
+                                    <span>{suggestion}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Show positive availability */}
+                    {schedulingResult.issues.some(issue => issue.code === 'GOOD_AVAILABILITY') && (
+                      <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                        <div className="flex items-start space-x-3">
+                          <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+                          <div>
+                            <h4 className="font-medium text-green-900">Workers Available</h4>
+                            <p className="text-sm text-green-800 mt-1">
+                              {schedulingResult.issues.find(issue => issue.code === 'GOOD_AVAILABILITY')?.message}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-start space-x-3">
+                      <Users className="h-5 w-5 text-blue-600 mt-0.5" />
+                      <div>
+                        <h4 className="font-medium text-blue-900">Worker Availability Check</h4>
+                        <p className="text-sm text-blue-800 mt-1">
+                          Complete the schedule step to see worker availability for your selected roles and time.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {formData.job_role_ids.length === 0 && (
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <div className="flex items-start space-x-3">
+                  <Users className="h-5 w-5 text-gray-500 mt-0.5" />
+                  <div>
+                    <h4 className="font-medium text-gray-700">Select Roles First</h4>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Choose the job roles needed to see worker availability and get scheduling recommendations.
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
+
+            {/* Worker Recommendations - Only show when roles selected AND scheduling is valid */}
+            {formData.job_role_ids.length > 0 && 
+             formData.scheduled_date && 
+             formData.start_time && 
+             formData.end_time && 
+             schedulingResult && 
+             schedulingResult.valid && 
+             !schedulingResult.issues.some(issue => issue.type === 'error') && (
+              <div className="space-y-4">
+                <div className="border-t pt-4">
+                  <h4 className="font-medium text-gray-900 mb-3">Recommended Worker Assignments</h4>
+                  <WorkerSelector
+                    jobData={{
+                      start: (() => {
+                        const [year, month, day] = formData.scheduled_date.split('-').map(Number)
+                        const [startHour, startMinute] = formData.start_time.split(':').map(Number)
+                        return new Date(year, month - 1, day, startHour, startMinute)
+                      })(),
+                      finish: (() => {
+                        const [year, month, day] = formData.scheduled_date.split('-').map(Number)
+                        const [endHour, endMinute] = formData.end_time.split(':').map(Number)
+                        return new Date(year, month - 1, day, endHour, endMinute)
+                      })(),
+                      type: formData.job_type,
+                      address: formData.address,
+                      notes: formData.notes || '',
+                      estimated_duration: (() => {
+                        const start = new Date(`2000-01-01T${formData.start_time}:00`)
+                        const end = new Date(`2000-01-01T${formData.end_time}:00`)
+                        if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0
+                        return (end.getTime() - start.getTime()) / (1000 * 60 * 60)
+                      })()
+                    }}
+                    requirements={formData.job_role_ids.map(roleId => {
+                      const role = jobRoles.find(r => r.id === roleId)
+                      console.log('🔧 JOB WIZARD: Creating requirement for role:', { roleId, role })
+                      return {
+                        job_role_id: roleId,
+                        quantity_required: 1,
+                        min_proficiency_level: 1
+                      } as JobRequirement
+                    })}
+                    teamId={userProfile.team_id}
+                    onAssignmentSelect={handleAssignmentSelect}
+                    selectedAssignment={selectedAssignment}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )
 
@@ -899,42 +1275,248 @@ export function JobWizard({ userProfile }: JobWizardProps) {
                 </div>
               </div>
 
-              {/* Workers & Roles */}
+              {/* Workers & Roles Validation */}
               <div className="p-4 border rounded-lg">
-                <h4 className="font-medium mb-3">Workers & Roles</h4>
-                <div className="grid gap-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Workers Needed:</span>
-                    <span>{formData.worker_count}</span>
+                <h4 className="font-medium mb-3">Worker-Role Coverage</h4>
+                {isValidatingRoles ? (
+                  <div className="text-center py-4">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                    <p className="text-sm text-muted-foreground">Validating worker assignments...</p>
                   </div>
-                  <div className="space-y-1">
-                    <span className="text-muted-foreground">Required Roles:</span>
-                    {formData.job_role_ids.length > 0 ? (
-                      <div className="space-y-1">
-                        {formData.job_role_ids.map(roleId => {
-                          const role = jobRoles.find(r => r.id === roleId)
-                          return role ? (
-                            <div key={roleId} className="flex justify-between text-sm">
-                              <span>• {role.name}</span>
-                              {role.hourly_rate_base && (
-                                <span className="text-muted-foreground">${role.hourly_rate_base}/hr</span>
-                              )}
-                            </div>
-                          ) : null
-                        })}
+                ) : roleValidationResult ? (
+                  <div className="space-y-4">
+                    {/* Overall Status */}
+                    <div className={`p-3 rounded-lg ${roleValidationResult.valid ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} border`}>
+                      <div className="flex items-center space-x-2">
+                        {roleValidationResult.valid ? (
+                          <CheckCircle className="h-5 w-5 text-green-600" />
+                        ) : (
+                          <AlertTriangle className="h-5 w-5 text-red-600" />
+                        )}
+                        <span className={`font-medium ${roleValidationResult.valid ? 'text-green-900' : 'text-red-900'}`}>
+                          {roleValidationResult.valid ? 'All roles covered with qualified, available workers' : 'Role coverage incomplete'}
+                        </span>
                       </div>
-                    ) : (
-                      <span>None selected</span>
+                    </div>
+
+                    {/* Role Coverage Table */}
+                    {roleValidationResult.roles.length > 0 && (
+                      <div className="space-y-2">
+                        <h5 className="font-medium text-sm">Role Coverage Status:</h5>
+                        <div className="border rounded-lg overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="text-left px-3 py-2">Role</th>
+                                <th className="text-left px-3 py-2">Status</th>
+                                <th className="text-right px-3 py-2">Available Workers</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {roleValidationResult.roles.map((role, idx) => (
+                                <tr key={role.roleId} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                  <td className="px-3 py-2 font-medium">{role.roleName}</td>
+                                  <td className="px-3 py-2">
+                                    <div className="flex items-center space-x-2">
+                                      {role.status === 'covered' ? (
+                                        <>
+                                          <CheckCircle className="h-4 w-4 text-green-600" />
+                                          <span className="text-green-700">Covered</span>
+                                        </>
+                                      ) : role.status === 'no_workers' ? (
+                                        <>
+                                          <AlertTriangle className="h-4 w-4 text-red-600" />
+                                          <span className="text-red-700">No Workers</span>
+                                        </>
+                                      ) : role.status === 'insufficient' ? (
+                                        <>
+                                          <AlertTriangle className="h-4 w-4 text-orange-600" />
+                                          <span className="text-orange-700">Insufficient</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <AlertTriangle className="h-4 w-4 text-red-600" />
+                                          <span className="text-red-700">Unavailable</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    {role.availableWorkers.filter(w => w.isAvailable).length} / {role.availableWorkers.length}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Worker Assignment Summary */}
+                    {roleValidationResult.roles.some(role => role.availableWorkers.length > 0) && (
+                      <div className="space-y-2">
+                        <h5 className="font-medium text-sm">Worker Assignments:</h5>
+                        <div className="space-y-2">
+                          {roleValidationResult.roles.map(role => (
+                            role.availableWorkers.length > 0 && (
+                              <div key={role.roleId} className="border rounded-lg p-3">
+                                <div className="font-medium text-sm mb-2">{role.roleName}</div>
+                                <div className="space-y-1">
+                                  {role.availableWorkers.map(worker => (
+                                    <div key={worker.workerId} className="flex justify-between items-center text-sm">
+                                      <div className="flex items-center space-x-2">
+                                        <span className={worker.isAvailable ? 'text-green-700' : 'text-red-700'}>
+                                          {worker.isAvailable ? '✓' : '✗'}
+                                        </span>
+                                        <span>{worker.workerName}</span>
+                                      </div>
+                                      <span className="text-muted-foreground">
+                                        ${worker.hourlyRate}/hr
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Selected Worker Assignment */}
+                    {selectedAssignment && (
+                      <div className="space-y-2">
+                        <h5 className="font-medium text-sm">Selected Worker Assignment:</h5>
+                        <div className="border rounded-lg p-3 bg-green-50 border-green-200">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center space-x-2">
+                              <CheckCircle className="h-4 w-4 text-green-600" />
+                              <span className="font-medium text-green-900">
+                                {selectedAssignment.type === 'crew' ? selectedAssignment.crew_name : 'Individual Assignment'}
+                              </span>
+                            </div>
+                            <span className="text-sm text-green-700">
+                              {selectedAssignment.total_score}% Match
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            {selectedAssignment.workers.map((worker, idx) => (
+                              <div key={idx} className="flex justify-between items-center text-sm">
+                                <div className="flex items-center space-x-2">
+                                  <span className="font-medium">{worker.worker_name}</span>
+                                  {worker.is_lead && (
+                                    <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">Lead</span>
+                                  )}
+                                  <span className="text-muted-foreground">({worker.role_name})</span>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-muted-foreground">${worker.suggested_rate}/hr</span>
+                                  <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                                    Score: {worker.score}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-2 pt-2 border-t border-green-300">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-green-700">Estimated Cost:</span>
+                              <span className="font-medium text-green-900">${selectedAssignment.estimated_cost.toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Issues and Suggestions */}
+                    {roleValidationResult.overallIssues.length > 0 && (
+                      <div className="space-y-2">
+                        <h5 className="font-medium text-sm">Issues:</h5>
+                        <div className="space-y-2">
+                          {roleValidationResult.overallIssues.map((issue, idx) => (
+                            <div key={idx} className={`p-3 rounded-lg border ${
+                              issue.type === 'error' ? 'bg-red-50 border-red-200' : 
+                              issue.type === 'warning' ? 'bg-orange-50 border-orange-200' : 
+                              'bg-blue-50 border-blue-200'
+                            }`}>
+                              <div className="flex items-start space-x-2">
+                                <AlertTriangle className={`h-4 w-4 mt-0.5 ${
+                                  issue.type === 'error' ? 'text-red-600' : 
+                                  issue.type === 'warning' ? 'text-orange-600' : 
+                                  'text-blue-600'
+                                }`} />
+                                <div className="flex-1">
+                                  <div className={`font-medium text-sm ${
+                                    issue.type === 'error' ? 'text-red-900' : 
+                                    issue.type === 'warning' ? 'text-orange-900' : 
+                                    'text-blue-900'
+                                  }`}>
+                                    {issue.title}
+                                  </div>
+                                  <div className={`text-xs mt-1 ${
+                                    issue.type === 'error' ? 'text-red-700' : 
+                                    issue.type === 'warning' ? 'text-orange-700' : 
+                                    'text-blue-700'
+                                  }`}>
+                                    {issue.message}
+                                  </div>
+                                  {issue.suggestions.length > 0 && (
+                                    <div className="mt-2">
+                                      <div className={`text-xs font-medium ${
+                                        issue.type === 'error' ? 'text-red-900' : 
+                                        issue.type === 'warning' ? 'text-orange-900' : 
+                                        'text-blue-900'
+                                      }`}>
+                                        Suggestions:
+                                      </div>
+                                      <ul className={`text-xs mt-1 space-y-1 ${
+                                        issue.type === 'error' ? 'text-red-700' : 
+                                        issue.type === 'warning' ? 'text-orange-700' : 
+                                        'text-blue-700'
+                                      }`}>
+                                        {issue.suggestions.map((suggestion, sidx) => (
+                                          <li key={sidx}>• {suggestion}</li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
-                  {formData.special_requirements && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Requirements:</span>
-                      <span className="text-right max-w-xs">{formData.special_requirements}</span>
-                    </div>
-                  )}
-                </div>
+                ) : (
+                  <div className="text-center py-4 text-muted-foreground">
+                    <p className="text-sm">Worker-role validation will appear here</p>
+                  </div>
+                )}
               </div>
+
+              {/* Final Cost Breakdown - Only when fully validated */}
+              {roleValidationResult?.valid && schedulingResult?.payEstimate && (
+                <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <h4 className="font-medium text-green-900 mb-3">✅ Final Cost Breakdown</h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-lg font-bold text-green-900">
+                      <span>Total Cost:</span>
+                      <span>${schedulingResult.payEstimate.totalCost.toFixed(2)}</span>
+                    </div>
+                    {schedulingResult.payEstimate.workerCosts.length > 0 && (
+                      <div className="space-y-1 pt-2 border-t border-green-200">
+                        {schedulingResult.payEstimate.workerCosts.map((worker, idx) => (
+                          <div key={idx} className="flex justify-between text-sm text-green-800">
+                            <span>{worker.workerName} (${worker.hourlyRate}/hr)</span>
+                            <span>${worker.cost.toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )
@@ -968,27 +1550,52 @@ export function JobWizard({ userProfile }: JobWizardProps) {
         clientId = newClient.id
       }
       
-      // Create job
+      // Calculate estimated hours from start/end times
+      let estimatedHours = 8 // Default fallback
+      if (formData.start_time && formData.end_time) {
+        const start = new Date(`2000-01-01T${formData.start_time}:00`)
+        const end = new Date(`2000-01-01T${formData.end_time}:00`)
+        if (end > start) {
+          estimatedHours = (end.getTime() - start.getTime()) / (1000 * 60 * 60)
+        }
+      }
+
+      // Timezone issue fixed - creating proper local date objects
+      
+      // Create timestamps in user's local timezone to avoid UTC conversion issues
+      let startTimestamp = null
+      let endTimestamp = null
+      
+      if (formData.scheduled_date && formData.start_time) {
+        // Parse date and time in local timezone
+        const [year, month, day] = formData.scheduled_date.split('-').map(Number)
+        const [startHour, startMinute] = formData.start_time.split(':').map(Number)
+        const startDate = new Date(year, month - 1, day, startHour, startMinute)
+        startTimestamp = startDate.toISOString()
+      }
+      
+      if (formData.scheduled_date && formData.end_time) {
+        const [year, month, day] = formData.scheduled_date.split('-').map(Number)
+        const [endHour, endMinute] = formData.end_time.split(':').map(Number)
+        const endDate = new Date(year, month - 1, day, endHour, endMinute)
+        endTimestamp = endDate.toISOString()
+      }
+
+      // Create job data with remaining_balance and fixed timezone handling
       const jobData = {
         team_id: userProfile.team_id,
         client_id: clientId,
         job_type: formData.job_type,
         address: formData.address,
+        estimated_hours: estimatedHours,
         quote_amount: parseFloat(formData.quote_amount),
         remaining_balance: parseFloat(formData.remaining_balance),
-        scheduled_date: formData.scheduled_date,
-        start_time: formData.start_time,
-        end_time: formData.end_time,
         notes: formData.notes || null,
         equipment_required: [],
         status: 'PENDING' as const,
-        // Legacy fields for backward compatibility
-        scheduled_start: formData.scheduled_date && formData.start_time 
-          ? new Date(`${formData.scheduled_date}T${formData.start_time}`).toISOString()
-          : null,
-        scheduled_end: formData.scheduled_date && formData.end_time 
-          ? new Date(`${formData.scheduled_date}T${formData.end_time}`).toISOString()
-          : null,
+        // Use corrected timestamp fields
+        start_time: startTimestamp,
+        end_time: endTimestamp,
       }
 
       const { data: job, error: jobError } = await supabase
@@ -1020,7 +1627,29 @@ export function JobWizard({ userProfile }: JobWizardProps) {
   }
 
   const isLastStep = currentStep === steps.length - 1
-  const canProceed = validationIssues.length === 0
+  
+  // Strict validation rules - no compromises allowed
+  const canProceed = (() => {
+    // Basic validation issues must be clear
+    if (validationIssues.length > 0) return false
+    
+    // For Review step: strict worker-role validation required
+    if (currentStep === 5) {
+      // Must have role validation result
+      if (!roleValidationResult) return false
+      
+      // ALL roles must be perfectly covered
+      if (!roleValidationResult.valid) return false
+      
+      // Cannot have any error-level issues
+      if (roleValidationResult.overallIssues.some(issue => issue.type === 'error')) return false
+      
+      // Each role must be in 'covered' status
+      if (roleValidationResult.roles.some(role => role.status !== 'covered')) return false
+    }
+    
+    return true
+  })()
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 px-4 sm:px-6 lg:px-8">
@@ -1065,12 +1694,19 @@ export function JobWizard({ userProfile }: JobWizardProps) {
               Back
             </Button>
             
-            <div className="flex items-center space-x-3 w-full sm:w-auto order-1 sm:order-2">
+            <div className="flex flex-col items-end space-y-2 w-full sm:w-auto order-1 sm:order-2">
+              {isLastStep && !canProceed && roleValidationResult && !roleValidationResult.valid && (
+                <div className="text-sm text-red-600 text-right">
+                  ⚠️ Complete role coverage required to create job
+                </div>
+              )}
               {isLastStep ? (
                 <Button
                   onClick={handleSubmit}
                   disabled={!canProceed || isLoading}
-                  className="bg-green-600 hover:bg-green-700 w-full sm:w-auto"
+                  className="bg-green-600 hover:bg-green-700 w-full sm:w-auto disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  title={!canProceed && roleValidationResult && !roleValidationResult.valid ? 
+                    'All required roles must have qualified, available workers before job creation' : ''}
                 >
                   {isLoading ? (
                     <>

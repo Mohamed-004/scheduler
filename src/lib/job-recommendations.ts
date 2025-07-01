@@ -530,9 +530,10 @@ async function analyzeRoleDeficits(request: JobValidationRequest, supabase: any)
 
     // Get current workers with this role
     const { data: assignments } = await supabase
-      .from('worker_role_assignments')
+      .from('worker_capabilities')
       .select('worker_id, worker:users!inner(team_id)')
       .eq('job_role_id', requirement.job_role_id)
+      .eq('is_active', true)
       .eq('worker.team_id', request.teamId)
 
     // Estimate demand (simplified calculation)
@@ -563,7 +564,7 @@ async function findTrainingOpportunities(request: JobValidationRequest, supabase
       id,
       name,
       user:users!inner(team_id),
-      worker_role_assignments(job_role_id, job_role:job_roles(name))
+      worker_capabilities(job_role_id, job_role:job_roles(name), is_active)
     `)
     .eq('user.team_id', request.teamId)
     .eq('is_active', true)
@@ -582,14 +583,14 @@ async function findTrainingOpportunities(request: JobValidationRequest, supabase
 
     // Find workers who don't have this role but could learn it
     const eligibleWorkers = workers.filter(worker => {
-      const hasRole = worker.worker_role_assignments?.some((assignment: any) => 
-        assignment.job_role_id === requirement.job_role_id
+      const hasRole = worker.worker_capabilities?.some((capability: any) => 
+        capability.job_role_id === requirement.job_role_id && capability.is_active
       )
-      return !hasRole && worker.worker_role_assignments?.length > 0 // Has other roles
+      return !hasRole && worker.worker_capabilities?.length > 0 // Has other roles
     })
 
     for (const worker of eligibleWorkers.slice(0, 2)) { // Limit suggestions
-      const currentRoles = worker.worker_role_assignments?.map((a: any) => a.job_role.name) || []
+      const currentRoles = worker.worker_capabilities?.filter((c: any) => c.is_active).map((c: any) => c.job_role.name) || []
       
       opportunities.push({
         workerId: worker.id,

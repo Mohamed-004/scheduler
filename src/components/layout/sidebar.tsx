@@ -19,7 +19,8 @@ import {
   Menu,
   X,
   Bell,
-  UserCheck
+  UserCheck,
+  HelpCircle
 } from 'lucide-react'
 
 interface SidebarProps {
@@ -102,6 +103,12 @@ const navItems: NavItem[] = [
     href: '/dashboard/settings',
     icon: Settings,
     label: 'Settings',
+    roles: ['admin', 'sales', 'worker', 'client']
+  },
+  {
+    href: '/dashboard/faq',
+    icon: HelpCircle,
+    label: 'Help & FAQ',
     roles: ['admin', 'sales', 'worker', 'client']
   }
 ]

@@ -23,16 +23,6 @@ export const isDateInPast = (date: string | Date): boolean => {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   
-  // DEBUG: Log the comparison details
-  console.log('=== isDateInPast DEBUG (FIXED) ===')
-  console.log('Input date string/object:', date)
-  console.log('Parsed input date:', inputDate.toISOString())
-  console.log('Today date:', today.toISOString())
-  console.log('Input date time:', inputDate.getTime())
-  console.log('Today time:', today.getTime())
-  console.log('Is input < today?', inputDate < today)
-  console.log('================================')
-  
   return inputDate < today
 }
 

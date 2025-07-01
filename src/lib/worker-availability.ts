@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
+import { calculateFairnessScore, getWorkerUtilization } from '@/lib/worker-utilization'
 import { getDayName, isWorkerAvailableOnDay, getWorkingHours, calculateDayNetHours } from '@/lib/schedule-utils'
 import type { WeeklySchedule, ScheduleException } from '@/lib/validations/worker-schedule'
 
@@ -193,40 +194,68 @@ export async function calculateQualificationScore(
       }
     }
 
-    // Check required certifications
+    // Check required certifications through worker capabilities
+    // workerId might be worker ID or user ID, try both approaches
     let hasAllCertifications = true
     if (jobRole.required_certifications && jobRole.required_certifications.length > 0) {
-      const { data: workerCertifications } = await supabase
-        .from('worker_certifications')
-        .select('certification_name, is_verified, expiry_date')
+      // First try with the workerId as-is (might be user_id)
+      let { data: workerCapabilities } = await supabase
+        .from('worker_capabilities')
+        .select('job_role:job_roles(required_certifications), proficiency_level')
         .eq('worker_id', workerId)
-        .in('certification_name', jobRole.required_certifications)
+        .eq('is_active', true)
 
-      const validCertifications = workerCertifications?.filter(cert => 
-        cert.is_verified && 
-        (!cert.expiry_date || new Date(cert.expiry_date) >= new Date())
+      // If no results and workerId looks like a worker ID, get the user_id
+      if (!workerCapabilities || workerCapabilities.length === 0) {
+        const { data: worker } = await supabase
+          .from('workers')
+          .select('user_id')
+          .eq('id', workerId)
+          .single()
+        
+        if (worker) {
+          const { data: capabilities } = await supabase
+            .from('worker_capabilities')
+            .select('job_role:job_roles(required_certifications), proficiency_level')
+            .eq('worker_id', worker.user_id)
+            .eq('is_active', true)
+          workerCapabilities = capabilities
+        }
+      }
+
+      // Check if worker has capabilities that include required certifications
+      const validCapabilities = workerCapabilities?.filter(cap => 
+        cap.job_role?.required_certifications?.some(cert => 
+          jobRole.required_certifications.includes(cert)
+        )
       ) || []
 
-      const missingCertifications = jobRole.required_certifications.filter(
-        reqCert => !validCertifications.some(cert => cert.certification_name === reqCert)
-      )
-
-      if (missingCertifications.length === 0) {
+      if (validCapabilities.length > 0) {
         score += 20
-        reasons.push('Has all required certifications')
+        reasons.push('Has capabilities with required certifications')
       } else {
         hasAllCertifications = false
-        score -= missingCertifications.length * 10
-        reasons.push(`Missing certifications: ${missingCertifications.join(', ')}`)
+        score -= jobRole.required_certifications.length * 10
+        reasons.push(`Missing required certifications: ${jobRole.required_certifications.join(', ')}`)
       }
     }
 
-    // Worker rating bonus
-    const { data: worker } = await supabase
+    // Worker rating bonus - handle both worker ID and user ID
+    let { data: worker } = await supabase
       .from('workers')
       .select('rating')
       .eq('id', workerId)
       .single()
+    
+    // If not found by worker ID, try by user_id
+    if (!worker) {
+      const { data: workerByUserId } = await supabase
+        .from('workers')
+        .select('rating')
+        .eq('user_id', workerId)
+        .single()
+      worker = workerByUserId
+    }
 
     if (worker?.rating) {
       const ratingBonus = (worker.rating - 3) * 5 // 3 is neutral, gives -10 to +10
@@ -291,11 +320,18 @@ export async function findAvailableWorkers(
       // Calculate qualification score
       const qualification = await calculateQualificationScore(worker.id, jobRoleId)
 
-      // Get suggested rate
+      // Get suggested rate - try with worker's user_id
+      let workerId = worker.id
+      
+      // If this looks like a worker record ID, get the user_id
+      if (worker.user_id) {
+        workerId = worker.user_id
+      }
+      
       const { data: roleAssignment } = await supabase
         .from('worker_role_assignments')
         .select('hourly_rate')
-        .eq('worker_id', worker.id)
+        .eq('worker_id', workerId)
         .eq('job_role_id', jobRoleId)
         .order('assigned_at', { ascending: false })
         .limit(1)
@@ -309,12 +345,21 @@ export async function findAvailableWorkers(
 
       const suggestedRate = roleAssignment?.hourly_rate || jobRole?.hourly_rate_base || 25
 
-      // Calculate overall score
-      const availabilityWeight = 0.4
-      const qualificationWeight = 0.6
+      // Get worker utilization for fairness scoring - use user_id if available
+      const utilizationWorkerId = worker.user_id || worker.id
+      const utilization = await getWorkerUtilization(utilizationWorkerId)
+      const utilizationPercentage = utilization?.utilization_percentage || 0
+
+      // Calculate overall score with fairness component
+      const availabilityWeight = 0.35
+      const qualificationWeight = 0.45
+      const fairnessWeight = 0.20
       
       const availabilityScore = availability.available ? 100 : Math.max(0, 100 - availability.conflicts.length * 20)
-      const overallScore = (availabilityScore * availabilityWeight) + (qualification.score * qualificationWeight)
+      const baseScore = (availabilityScore * availabilityWeight) + (qualification.score * qualificationWeight)
+      
+      // Apply fairness scoring to promote equitable work distribution
+      const overallScore = calculateFairnessScore(baseScore, utilizationPercentage, fairnessWeight)
 
       availabilityScores.push({
         worker_id: worker.id,

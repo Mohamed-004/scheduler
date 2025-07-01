@@ -66,21 +66,87 @@ export default async function WorkerRolesPage({ params }: WorkerRolesPageProps) 
     .eq('is_active', true)
     .order('name', { ascending: true })
 
-  // Get current worker role assignments
-  const { data: currentAssignments } = await supabase
-    .from('worker_role_assignments')
-    .select(`
-      *,
-      job_role:job_roles(
+  // Get current worker capabilities (with fallback to empty array if table doesn't exist)
+  let currentAssignments: any[] = []
+  
+  console.log('🔍 WORKER CAPABILITIES DEBUG:', {
+    worker_id: id,
+    worker_user_id: worker.user_id,
+    worker_team_id: worker.user?.team_id,
+    current_user_team_id: userProfile.team_id,
+    worker_name: worker.name,
+    user_role: userProfile.role
+  })
+  
+  try {
+    const { data, error } = await supabase
+      .from('worker_capabilities')
+      .select(`
         id,
-        name,
-        description,
-        color_code,
-        hourly_rate_base
-      )
-    `)
-    .eq('worker_id', worker.user?.id)
-    .order('assigned_at', { ascending: false })
+        job_role_id,
+        is_lead,
+        proficiency_level,
+        notes,
+        assigned_at
+      `)
+      .eq('worker_id', worker.user_id)
+      .eq('is_active', true)
+      .order('assigned_at', { ascending: false })
+
+    // Get job roles separately to avoid relationship ambiguity
+    let jobRolesMap = new Map()
+    if (data && data.length > 0) {
+      const roleIds = [...new Set(data.map(cap => cap.job_role_id))]
+      const { data: jobRoles } = await supabase
+        .from('job_roles')
+        .select('id, name, description, color_code')
+        .in('id', roleIds)
+      
+      if (jobRoles) {
+        jobRoles.forEach(role => jobRolesMap.set(role.id, role))
+      }
+    }
+
+    // Combine the data
+    const dataWithRoles = data?.map(capability => ({
+      ...capability,
+      job_role: jobRolesMap.get(capability.job_role_id) || null
+    }))
+    
+    console.log('🔍 WORKER CAPABILITIES QUERY RESULT:', {
+      error,
+      data_length: data?.length || 0,
+      data_sample: data?.slice(0, 2) || null,
+      dataWithRoles_length: dataWithRoles?.length || 0,
+      query_worker_id: worker.user_id
+    })
+    
+    if (!error) {
+      currentAssignments = dataWithRoles || []
+      console.log('✅ WORKER CAPABILITIES: Successfully loaded', currentAssignments.length, 'capabilities')
+    } else {
+      console.error('❌ WORKER CAPABILITIES ERROR DETAILS:', {
+        error_message: error.message,
+        error_code: error.code,
+        error_details: error.details,
+        error_hint: error.hint,
+        worker_user_id: worker.user_id,
+        team_context: userProfile.team_id
+      })
+      currentAssignments = []
+    }
+  } catch (error) {
+    console.error('❌ WORKER CAPABILITIES CATCH ERROR:', {
+      error_message: error.message,
+      error_stack: error.stack,
+      worker_context: {
+        worker_id: id,
+        worker_user_id: worker.user_id,
+        team_id: userProfile.team_id
+      }
+    })
+    currentAssignments = []
+  }
 
   return (
     <div className="space-y-6">
@@ -107,7 +173,7 @@ export default async function WorkerRolesPage({ params }: WorkerRolesPageProps) 
 
       {/* Roles Manager */}
       <WorkerRolesManager
-        workerId={worker.user?.id || ''}
+        workerId={worker.user_id || ''}
         workerName={worker.name}
         availableRoles={availableRoles || []}
         currentAssignments={currentAssignments || []}

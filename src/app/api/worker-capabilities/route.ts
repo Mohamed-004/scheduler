@@ -22,13 +22,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'User profile not found' }, { status: 404 })
     }
 
-    // Check if user has permission to assign roles
+    // Check if user has permission to assign capabilities
     if (!['admin', 'sales'].includes(userProfile.role)) {
       return NextResponse.json({ success: false, error: 'Insufficient permissions' }, { status: 403 })
     }
 
     const body = await request.json()
-    const { worker_id, job_role_id, is_lead } = body
+    const { worker_id, job_role_id, is_lead, proficiency_level } = body
 
     // Validate required fields
     if (!worker_id || !job_role_id) {
@@ -57,27 +57,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Job role not found or access denied' }, { status: 404 })
     }
 
-    // Insert the worker role assignment
+    // Insert the worker capability
     const { data, error } = await supabase
-      .from('worker_role_assignments')
+      .from('worker_capabilities')
       .insert({
-        job_id: null, // This is for general capability assignment, not job-specific
         worker_id: worker_id,
         job_role_id: job_role_id,
         is_lead: is_lead || false,
+        proficiency_level: proficiency_level || 1,
         assigned_by: user.id
       })
       .select()
       .single()
 
     if (error) {
-      console.error('Error creating worker role assignment:', error)
-      return NextResponse.json({ success: false, error: 'Failed to assign role' }, { status: 500 })
+      console.error('Error creating worker capability:', error)
+      return NextResponse.json({ success: false, error: 'Failed to assign capability' }, { status: 500 })
     }
 
     return NextResponse.json({ success: true, data })
   } catch (error) {
-    console.error('Unexpected error in worker roles API:', error)
+    console.error('Unexpected error in worker capabilities API:', error)
     return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 })
   }
 }

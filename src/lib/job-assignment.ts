@@ -278,7 +278,11 @@ async function buildCrewAssignmentSuggestion(
             is_lead: workers.length === 0 // First worker is lead
           })
 
-          totalCost += suggestedRate * jobData.estimated_hours
+          // Use actual job duration from time slot, or fallback to estimated hours
+          const jobDuration = timeSlot ? 
+            (timeSlot.end.getTime() - timeSlot.start.getTime()) / (1000 * 60 * 60) :
+            jobData.estimated_hours || 8
+          totalCost += suggestedRate * jobDuration
           totalScore += memberScore
         }
       }
@@ -339,7 +343,11 @@ async function generateIndividualAssignmentSuggestions(
             is_lead: assignment.is_lead
           })
 
-          totalCost += assignment.suggested_rate * 8 // Estimate 8 hours if not specified
+          // Calculate actual job duration or use estimated hours
+          const jobDuration = timeSlot ? 
+            (timeSlot.end.getTime() - timeSlot.start.getTime()) / (1000 * 60 * 60) :
+            8 // Default to 8 hours if no time specified
+          totalCost += assignment.suggested_rate * jobDuration
         }
 
         suggestions.push({
@@ -371,23 +379,29 @@ async function generateIndividualAssignmentSuggestions(
             const worker = bestWorkers[i]
             
             // Get role name
-            const { data: jobRole } = await supabase
+            const { data: jobRole, error: roleError } = await supabase
               .from('job_roles')
               .select('name')
               .eq('id', requirement.job_role_id)
               .single()
 
+            if (roleError) {
+              console.error('Error fetching job role:', roleError, 'for role ID:', requirement.job_role_id)
+            }
+
             workers.push({
               worker_id: worker.worker_id,
               worker_name: worker.worker_name,
               job_role_id: requirement.job_role_id,
-              role_name: jobRole?.name || 'Unknown Role',
+              role_name: jobRole?.name || `Role ${requirement.job_role_id}`,
               suggested_rate: worker.suggested_rate,
               score: worker.score,
               is_lead: i === 0 && suggestions.length === 0 // First worker of first role
             })
 
-            totalCost += worker.suggested_rate * 8
+            // Use estimated hours or default to 8
+            const jobDuration = 8 // Default when no time slot specified
+            totalCost += worker.suggested_rate * jobDuration
             totalScore += worker.score
           }
 

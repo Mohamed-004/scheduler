@@ -367,28 +367,52 @@ async function validateRoleRequirements(roleRequirements: JobRequirement[], team
       })
     }
 
+    // Get role name for better error messages
+    const { data: role } = await supabase
+      .from('job_roles')
+      .select('name')
+      .eq('id', requirement.job_role_id)
+      .single()
+
+    const roleName = role?.name || 'this role'
+
     // Check if workers exist with this role
-    const { data: roleAssignments } = await supabase
-      .from('worker_role_assignments')
-      .select('worker_id, worker:users!inner(team_id)')
+    const { data: capabilities } = await supabase
+      .from('worker_capabilities')
+      .select('worker_id')
       .eq('job_role_id', requirement.job_role_id)
-      .eq('worker.team_id', teamId)
+      .eq('is_active', true)
 
-    if (!roleAssignments || roleAssignments.length === 0) {
-      // Get role name for better error message
-      const { data: role } = await supabase
-        .from('job_roles')
-        .select('name')
-        .eq('id', requirement.job_role_id)
-        .single()
-
-      const roleName = role?.name || 'this role'
-
+    if (!capabilities || capabilities.length === 0) {
       warnings.push({
         type: 'warning',
         code: 'NO_WORKERS_WITH_ROLE',
-        title: `No Workers Assigned to ${roleName}`,
-        message: `None of your workers are currently assigned to the "${roleName}" role.`,
+        title: `No workers trained for ${roleName}`,
+        message: `No workers currently have the ${roleName} capability.`,
+        affectedField: `roleRequirements.${index}.job_role_id`,
+        suggestions: [
+          'Train existing workers for this role',
+          'Hire workers with this capability',
+          'Remove this role requirement'
+        ]
+      })
+      continue
+    }
+
+    // Check if any of these workers are in the current team
+    const workerIds = capabilities.map(c => c.worker_id)
+    const { data: roleAssignments } = await supabase
+      .from('users')
+      .select('id')
+      .in('id', workerIds)
+      .eq('team_id', teamId)
+
+    if (!roleAssignments || roleAssignments.length === 0) {
+      warnings.push({
+        type: 'warning',
+        code: 'NO_WORKERS_WITH_ROLE',
+        title: `No Team Workers with ${roleName}`,
+        message: `None of your team workers currently have the "${roleName}" capability.`,
         details: 'You can still create the job, but you\'ll need to assign workers to this role before scheduling.',
         recommendations: [
           `Assign existing workers to the "${roleName}" role`,

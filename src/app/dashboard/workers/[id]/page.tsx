@@ -37,13 +37,24 @@ export default async function WorkerDetailPage({ params }: WorkerDetailPageProps
   // Get current user for role checking
   const { data: { user: currentUser }, error: userError } = await supabase.auth.getUser()
   
+  console.log('🔍 AUTH DEBUG:', {
+    currentUser_id: currentUser?.id,
+    userError,
+    has_currentUser: !!currentUser
+  })
+  
   let currentUserRole = 'worker' // Default role
   if (currentUser && !userError) {
-    const { data: currentUserProfile } = await supabase
+    const { data: currentUserProfile, error: profileError } = await supabase
       .from('users')
-      .select('role')
+      .select('role, team_id')
       .eq('id', currentUser.id)
       .single()
+    
+    console.log('🔍 USER PROFILE DEBUG:', {
+      currentUserProfile,
+      profileError
+    })
     
     if (currentUserProfile) {
       currentUserRole = currentUserProfile.role
@@ -64,21 +75,69 @@ export default async function WorkerDetailPage({ params }: WorkerDetailPageProps
     notFound()
   }
 
-  // Get worker roles and assignments
-  const { data: workerRoles } = await supabase
-    .from('worker_role_assignments')
-    .select(`
-      *,
-      job_role:job_roles(
+  // Get worker capabilities (roles) - Using the same approach as working roles page
+  console.log('🔍 WORKER DETAIL PAGE DEBUG:', {
+    worker_id: id,
+    worker_user_id: worker.user_id,
+    worker_name: worker.name,
+    current_user_id: currentUser?.id,
+    current_user_role: currentUserRole
+  })
+  
+  let workerRoles: any[] = []
+  
+  try {
+    const { data, error } = await supabase
+      .from('worker_capabilities')
+      .select(`
         id,
-        name,
-        description,
-        color_code,
-        hourly_rate_base
-      )
-    `)
-    .eq('worker_id', worker.user?.id)
-    .order('assigned_at', { ascending: false })
+        job_role_id,
+        is_lead,
+        proficiency_level,
+        notes,
+        assigned_at
+      `)
+      .eq('worker_id', worker.user_id)
+      .eq('is_active', true)
+      .order('assigned_at', { ascending: false })
+
+    // Get job roles separately to avoid relationship issues
+    let jobRolesMap = new Map()
+    if (data && data.length > 0) {
+      const roleIds = [...new Set(data.map(cap => cap.job_role_id))]
+      const { data: jobRoles } = await supabase
+        .from('job_roles')
+        .select('id, name, description, color_code, hourly_rate_base')
+        .in('id', roleIds)
+      
+      if (jobRoles) {
+        jobRoles.forEach(role => jobRolesMap.set(role.id, role))
+      }
+    }
+
+    // Combine the data
+    const dataWithRoles = data?.map(capability => ({
+      ...capability,
+      job_role: jobRolesMap.get(capability.job_role_id) || null
+    }))
+    
+    console.log('🔍 WORKER DETAIL CAPABILITIES RESULT:', {
+      error,
+      data_length: data?.length || 0,
+      dataWithRoles_length: dataWithRoles?.length || 0,
+      data_sample: dataWithRoles?.slice(0, 2) || null
+    })
+    
+    if (!error) {
+      workerRoles = dataWithRoles || []
+    } else {
+      console.error('❌ WORKER DETAIL CAPABILITIES ERROR:', error)
+      workerRoles = []
+    }
+  } catch (error) {
+    console.error('❌ WORKER DETAIL CAPABILITIES CATCH ERROR:', error)
+    workerRoles = []
+  }
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'Not set'
@@ -210,27 +269,42 @@ export default async function WorkerDetailPage({ params }: WorkerDetailPageProps
             <CardDescription>Manage worker schedules and availability</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              <Link href={`/dashboard/workers/${id}/schedule`}>
-                <Button variant="outline" className="w-full">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Manage Schedule
-                </Button>
-              </Link>
+            <div className="space-y-8">
+              <div className="mb-4">
+                <Link href={`/dashboard/workers/${id}/schedule`}>
+                  <Button variant="outline" className="w-full h-14 text-left justify-start p-4">
+                    <Calendar className="h-5 w-5 mr-4 flex-shrink-0" />
+                    <div>
+                      <div className="font-medium">Manage Schedule</div>
+                      <div className="text-xs text-muted-foreground mt-1">Set working hours and patterns</div>
+                    </div>
+                  </Button>
+                </Link>
+              </div>
               
-              <Link href={`/dashboard/workers/${id}/exceptions`}>
-                <Button variant="outline" className="w-full">
-                  <Settings className="h-4 w-4 mr-2" />
-                  Special Exceptions
-                </Button>
-              </Link>
+              <div className="mb-4">
+                <Link href={`/dashboard/workers/${id}/exceptions`}>
+                  <Button variant="outline" className="w-full h-14 text-left justify-start p-4">
+                    <Settings className="h-5 w-5 mr-4 flex-shrink-0" />
+                    <div>
+                      <div className="font-medium">Special Exceptions</div>
+                      <div className="text-xs text-muted-foreground mt-1">Time off and holidays</div>
+                    </div>
+                  </Button>
+                </Link>
+              </div>
               
-              <Link href={`/dashboard/workers/${id}/roles`}>
-                <Button variant="outline" className="w-full">
-                  <Award className="h-4 w-4 mr-2" />
-                  Manage Roles
-                </Button>
-              </Link>
+              <div className="mb-4">
+                <Link href={`/dashboard/workers/${id}/roles`}>
+                  <Button variant="outline" className="w-full h-14 text-left justify-start p-4">
+                    <Award className="h-5 w-5 mr-4 flex-shrink-0" />
+                    <div>
+                      <div className="font-medium">Manage Roles</div>
+                      <div className="text-xs text-muted-foreground mt-1">Job capabilities and skills</div>
+                    </div>
+                  </Button>
+                </Link>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -272,7 +346,15 @@ export default async function WorkerDetailPage({ params }: WorkerDetailPageProps
                     )}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    Rate: ${assignment.hourly_rate}/hr
+                    {assignment.job_role?.description && (
+                      <div className="mb-1">{assignment.job_role.description}</div>
+                    )}
+                    <div className="flex items-center space-x-2">
+                      <span>Level {assignment.proficiency_level}/5</span>
+                      {assignment.job_role?.hourly_rate_base && (
+                        <span>• Base rate: ${assignment.job_role.hourly_rate_base}/hr</span>
+                      )}
+                    </div>
                     <div className="mt-1">
                       Assigned: {new Date(assignment.assigned_at).toLocaleDateString()}
                     </div>
